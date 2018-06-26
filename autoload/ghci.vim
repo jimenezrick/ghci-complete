@@ -7,7 +7,6 @@ function! ghci#omnifunc(findstart, base) abort
       \ 'file': expand('%:p'),
       \ }
 
-    echom "HETE"
     let resp = ch_evalexpr(g:chan, msg)
 
     echom printf('findstart: %s', a:findstart)
