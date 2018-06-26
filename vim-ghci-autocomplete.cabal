@@ -16,7 +16,6 @@ executable vim-ghci-autocomplete-exe
     , bytestring
     , aeson
     , unordered-containers
-    , vim-ghci-autocomplete
     , network-simple
     , vector
     , scientific
