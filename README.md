@@ -1,1 +1,1 @@
-# vim-ghci-autocomplete
+# vim-ghci-complete
