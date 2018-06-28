@@ -1,22 +1,54 @@
+function! s:connect_ghci() abort
+	let l:addr = readfile('.ghci_complete')[0]
+	echomsg printf('Connecting to GHCi server: %s', l:addr)
+	let b:ghci_chan = ch_open(l:addr, {"timeout":2000})
+endfunction
+
+function! s:send_command(command) abort
+	if !exists('b:ghci_chan')
+		call s:connect_ghci()
+	elseif ch_status(b:ghci_chan) != 'open'
+		call s:connect_ghci()
+	endif
+
+	if ch_status(b:ghci_chan) != 'open'
+		throw 'error_connect_ghci'
+	endif
+
+	return ch_evalexpr(b:ghci_chan, a:command)
+endfunction
+
 function! ghci#omnifunc(findstart, base) abort
-    let msg = {
-      \ 'findstart': a:findstart,
-      \ 'base': a:base,
-      \ 'line': getline('.'),
-      \ 'column': col('.') - 1,
-      \ 'file': expand('%:p'),
-      \ }
+	let l:cmd = {
+	\    'findstart': a:findstart,
+	\    'base': a:base,
+	\    'line': getline('.'),
+	\    'column': col('.'),
+	\ }
 
-    let resp = ch_evalexpr(g:chan, msg)
+	try
+		echomsg printf('GHCi <= Command: %s', l:cmd)
+		let l:resp = s:send_command(l:cmd)
+		echomsg printf('GHCi => Response: %s', l:resp)
+	catch /error_connect_ghci/
+		echohl WarningMsg | echomsg 'Error: failed to connect to GHCi server' | echohl None
+		return -1
+	catch
+		echohl ErrorMsg | echomsg 'Error: failed to send command to GHCi server' | echohl None
+		return -1
+	endtry
 
-    echom printf('findstart: %s', a:findstart)
-    echom printf('channel response: %s', resp)
-  if a:findstart
-    return resp['start']
-  else
-    for r in resp['results']
-      call complete_add(r)
-    endfor
-    return []
-  endif
+	if empty(l:resp)
+		echohl ErrorMsg | echomsg "Error: timeout GHCi server didn't reply" | echohl None
+		return -1
+	endif
+
+	if a:findstart
+		return l:resp['start']
+	else
+		for r in l:resp['results']
+			call complete_add(r)
+		endfor
+		return []
+	endif
 endfun

@@ -19,4 +19,5 @@ executable vim-ghci-complete
     , network-simple
     , vector
     , scientific
+    , ghc-syntax-highlighter
   default-language: Haskell2010
