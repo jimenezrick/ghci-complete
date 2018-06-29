@@ -87,7 +87,7 @@ serve sock ghci = do
                     let String base = fromJust $ lookup "base" cmd
                         Number first = fromJust $ lookup "complete_first" cmd
                         Number last = fromJust $ lookup "complete_last" cmd
-                    (results, more) <- completeWithTypes ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) base
+                    (results, more) <- performCompletion ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) base
                     let results' = Array . V.fromList $ Prelude.map fmtInfo results
                     printf "base => %s\n" base
                     reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
@@ -100,7 +100,7 @@ serve sock ghci = do
                 Nothing -> error "Weird"
             serve sock ghci
 
-  where fmtInfo (c, t, i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
+  where fmtInfo (Candidate c  t  i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
 ghciType :: Ghci -> Text -> IO Text
 ghciType ghci expr = do
@@ -125,18 +125,18 @@ ghciComplete ghci range base = do
     more _ Nothing = False
 
 data Candidate = Candidate
-    { completion :: Text
+    { candidate :: Text
     , type_ :: Text
     , info :: Text
     }
 
-completeWithTypes :: Ghci -> Maybe (Int, Int) -> Text -> IO ([(Text, Text, Text)], Bool)
-completeWithTypes ghci range base = do
+performCompletion :: Ghci -> Maybe (Int, Int) -> Text -> IO ([Candidate], Bool)
+performCompletion ghci range base = do
     (candidates, more) <- ghciComplete ghci range base
     candidates' <- forM candidates $ \c -> do
         t <- T.dropWhile isSpace . T.dropWhile (not . isSpace) <$> ghciType ghci c
         i <- T.unlines <$> ghciInfo ghci c
-        return (c, t, i)
+        return $ Candidate c t i
     return (candidates', more)
 
 evalRpl :: Ghci -> String -> IO [Text]
