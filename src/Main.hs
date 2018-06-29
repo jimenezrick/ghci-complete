@@ -79,30 +79,32 @@ serve sock ghci = do
                                      Array array -> (array V.! 0, array V.! 1)
                                      _ -> error "Fuck"
 
-
             let Just id' = (toBoundedInteger id_) :: Maybe Int
-            case lookup "findstart" cmd of
-                -- XXX: Check "command": "complete"
-                Just (Number 0) -> do
-                    let String base = fromJust $ lookup "base" cmd
+            case lookup "command" cmd of
+                Just (String "findstart") -> do
+                    let String line  = fromJust $ lookup "line" cmd
                         Number col  = fromJust $ lookup "column" cmd
+
+                        (_, start) = findStart line (fromJust $ toBoundedInteger col)
+
+                    reply sock id' $ A.Object [("start", A.Number $ fromIntegral start)]
+
+                Just (String "complete") -> do
+                    let Number col  = fromJust $ lookup "column" cmd
+                        String line  = fromJust $ lookup "line" cmd
                         Number first = fromJust $ lookup "complete_first" cmd
                         Number last = fromJust $ lookup "complete_last" cmd
-                    (results, more) <- performCompletion ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) base
-                    printf "FINDSTART0 => %d \"%s\"\n" (fromJust $ toBoundedInteger col :: Int) base
-                    let results' = Array . V.fromList $ Prelude.map fmtInfo results
+
+                        (candidate, _) = findStart line (fromJust $ toBoundedInteger col)
+
+                    (results, more) <- performCompletion ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) candidate
+                    let results' = Array . V.fromList $ Prelude.map fmtCandidate results
                     reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
-                Just (String "1") -> do -- XXX: Vim bug https://github.com/vim/vim/pull/2993
-                    let String line = fromJust $ lookup "line" cmd
-                        Number col  = fromJust $ lookup "column" cmd
-                        String base = fromJust $ lookup "base" cmd
-                        (start, candidate) = findStart line (fromJust $ toBoundedInteger col)
-                    printf "FINDSTART1 => %d \"%s\"\n" (fromJust $ toBoundedInteger col :: Int) base
-                    reply sock id' $ A.Object [("start", Number $ fromIntegral start)]
-                Nothing -> error "Weird"
+
+                _ -> error "Error: unknown received command"
             serve sock ghci
 
-  where fmtInfo (Candidate c  t  i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
+  where fmtCandidate (Candidate c  t  i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
 ghciType :: Ghci -> Text -> IO Text
 ghciType ghci expr = do
@@ -114,14 +116,22 @@ ghciInfo ghci expr = do
     evalRpl ghci cmd
   where cmd = printf ":info %s" expr
 
-ghciComplete :: Ghci -> Maybe (Int, Int) -> Text -> IO ([Text], Bool)
-ghciComplete ghci range base = do
+ghciBrowse :: Ghci -> Text -> IO [Text]
+ghciBrowse ghci expr = do
+    evalRpl ghci cmd
+  where cmd = printf ":browse %s" expr
+
+ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO ([Text], Bool)
+ghciComplete ghci range compl = do
     candidates <- evalRpl ghci $ cmd range
     let [num, total] = Prelude.map parseDigit $ Prelude.take 2 $ T.words $ Prelude.head candidates
     return (Prelude.map (T.init . T.tail) $ Prelude.tail candidates, more total range)
   where
-    cmd Nothing = printf ":complete repl \"%s\"" base
-    cmd (Just (first,  last)) = printf ":complete repl %d-%d \"%s\"" first last base
+    prefix (Module mod _) = printf "import %s" (T.unpack mod)
+    prefix (ModuleExport mod var _) = printf "%s.%s" (T.unpack mod) (T.unpack var) -- FIXME: remove module from results
+    prefix (Variable var _) = T.unpack var
+    cmd Nothing = printf ":complete repl \"%s\"" $ prefix compl
+    cmd (Just (first,  last)) = printf ":complete repl %d-%d \"%s\"" first last $ prefix compl
     parseDigit = fst . fromRight (-1, "") . decimal
     more total (Just (first, last)) = last < total
     more _ Nothing = False
@@ -132,32 +142,35 @@ data Candidate = Candidate
     , info :: Text
     }
 
-performCompletion :: Ghci -> Maybe (Int, Int) -> Text -> IO ([Candidate], Bool)
-performCompletion ghci range base = do
-    (candidates, more) <- ghciComplete ghci range base
+performCompletion :: Ghci -> Maybe (Int, Int) -> Completion -> IO ([Candidate], Bool)
+performCompletion ghci range compl = do
+    (candidates, more) <- ghciComplete ghci range compl
     candidates' <- forM candidates $ \c -> do
         t <- T.dropWhile isSpace . T.dropWhile (not . isSpace) <$> ghciType ghci c
-        i <- T.unlines <$> ghciInfo ghci c
+        i <- T.unlines <$> case compl of
+                               (Module mod _) -> ghciBrowse ghci c
+                               (ModuleExport mod var _) -> ghciInfo ghci c -- XXX: build prefix?
+                               (Variable var _) -> ghciInfo ghci c
         return $ Candidate c t i
     return (candidates', more)
 
 evalRpl :: Ghci -> String -> IO [Text]
 evalRpl ghci cmd = Prelude.map T.pack <$> exec ghci cmd
 
-findStart :: Text -> Int -> (Int, Text)
+findStart :: Text -> Int -> (Completion, Int)
 findStart line col =
     let (start, _) = T.splitAt (col - 1) line -- Column is [1..N] and column=X means text in [1..X-1]
      in trace (printf "debug: findStart \"%s\" %d" line col) $
         traceShowId $
         case parseCompletion start of
-            Nothing -> (0, "")
-            Just (Module mod loc) -> (startCol loc, mod)
-            Just (Variable var loc) -> (startCol loc, var)
+            Nothing -> (Variable "" (Loc 1 col 1 col), col) -- XXX?
+            Just mod@(Module _ loc) -> (mod, startCol loc)
+            Just var@(Variable _ loc) -> (var, startCol loc)
   where
     startCol (Loc _ c _ _) = c - 1 -- The text starts after the index X we return, so [X+1..]
 
 data Completion = Module Text Loc
-                | ModuleExport Text Loc
+                | ModuleExport Text Text Loc
                 | Variable Text Loc
                 deriving Show
 
@@ -173,22 +186,17 @@ decideCompletion _ = error "decideCompletion: missing completion case"
 parseCompletion :: Text -> Maybe Completion
 parseCompletion line =
     case (dropSpaces <$> tokenizeHaskell line, tokenizeHaskellLoc line) of
-        (Nothing, Nothing) -> Nothing
         (Just tokens, Just locs) ->
             let tokens' = zip3 (Prelude.map fst tokens) (Prelude.map snd tokens) (Prelude.map snd locs)
              in decideCompletion tokens'
+        _ -> Nothing
   where
     dropSpaces = Prelude.filter ((SpaceTok /=) . fst)
 
--- FIXME: type info for type class should be from 1st line from :info
--- :type-at
--- :set +c
--- : complete repl "import Foo.."
+-- :type-at :set +c
 --
 -- https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/ghci.html#ghci-cmd-:complete
 --
 -- reload code command
---
--- On complete module, instead of :info, use :browse
 --
 -- https://github.com/dramforever/vscode-ghc-simple

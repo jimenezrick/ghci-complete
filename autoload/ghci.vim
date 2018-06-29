@@ -19,15 +19,22 @@ function! s:send_command(command) abort
 endfunction
 
 function! ghci#omnifunc(findstart, base) abort
+	if a:findstart
+		let b:ghci_current_line= getline('.')
+		let b:ghci_current_col = col('.')
+	endif
+
 	let l:cmd = {
-	\    'command': 'complete',
-	\    'findstart': a:findstart,
-	\    'base': a:base,
-	\    'line': getline('.'),
-	\    'column': col('.'),
+	\    'command': 'findstart',
+	\    'line': b:ghci_current_line,
+	\    'column': b:ghci_current_col,
 	\    'complete_first': 1,
 	\    'complete_last': g:ghci_complete_batch_size,
 	\ }
+
+	if !a:findstart
+		let l:cmd['command'] = 'complete'
+	endif
 
 	while 1
 		try
