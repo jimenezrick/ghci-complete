@@ -85,17 +85,19 @@ serve sock ghci = do
                 -- XXX: Check "command": "complete"
                 Just (Number 0) -> do
                     let String base = fromJust $ lookup "base" cmd
+                        Number col  = fromJust $ lookup "column" cmd
                         Number first = fromJust $ lookup "complete_first" cmd
                         Number last = fromJust $ lookup "complete_last" cmd
                     (results, more) <- performCompletion ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) base
+                    printf "FINDSTART0 => %d \"%s\"\n" (fromJust $ toBoundedInteger col :: Int) base
                     let results' = Array . V.fromList $ Prelude.map fmtInfo results
-                    printf "base => %s\n" base
                     reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
                 Just (String "1") -> do -- XXX: Vim bug https://github.com/vim/vim/pull/2993
                     let String line = fromJust $ lookup "line" cmd
                         Number col  = fromJust $ lookup "column" cmd
+                        String base = fromJust $ lookup "base" cmd
                         (start, candidate) = findStart line (fromJust $ toBoundedInteger col)
-                    printf "findstart => %d %s\n" start candidate
+                    printf "FINDSTART1 => %d \"%s\"\n" (fromJust $ toBoundedInteger col :: Int) base
                     reply sock id' $ A.Object [("start", Number $ fromIntegral start)]
                 Nothing -> error "Weird"
             serve sock ghci
