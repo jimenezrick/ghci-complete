@@ -17,6 +17,7 @@ import Data.HashMap.Strict
 import Data.Maybe
 import Data.Scientific (toBoundedInteger)
 import Data.Text as T
+import Data.Text.IO as T
 import System.IO hiding (hGetLine)
 import Text.Printf
 
@@ -28,20 +29,27 @@ import Language.Haskell.Ghcid
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Network.Simple.TCP as T
 import qualified Data.Vector as V
+import qualified Network.Socket as S
 
--- TODO: write to .ghci_complete "localhost:8000"
+-- TODO: send {"action": "reload"} on write?
 
 main :: IO ()
 main = do
+    Prelude.putStrLn "Running server..."
+    writeAddressFile ".ghci_complete" "8000"
     T.serve
         T.HostAny
-        "8000"
-        (\(sock, _) -> do
-             Prelude.putStrLn "Connected"
+        "8000" -- XXX: make it random
+        (\(sock, _addr) -> do
+             Prelude.putStrLn "Client connected"
              (ghci, load) <- startGhci "cabal new-repl" Nothing printOutput
              serve sock ghci)
   where
     printOutput stream text = Prelude.putStrLn text
+
+writeAddressFile :: FilePath -> T.ServiceName -> IO ()
+writeAddressFile path port = do
+    Prelude.writeFile path $ printf "localhost:%s\n" port
 
 recv :: T.Socket -> IO (Maybe ByteString)
 recv sock = T.recv sock (1024 * 1024)
@@ -88,28 +96,36 @@ serve sock ghci = do
 
   where fmtInfo (c, t, i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
-type_ :: Ghci -> Text -> IO Text
-type_ ghci val = do
+ghciType :: Ghci -> Text -> IO Text
+ghciType ghci expr = do
     Prelude.head <$> evalRpl ghci cmd
-  where cmd = printf ":type %s" val
+  where cmd = printf ":type %s" expr
 
-info :: Ghci -> Text -> IO [Text]
-info ghci val = do
+ghciInfo :: Ghci -> Text -> IO [Text]
+ghciInfo ghci expr = do
     evalRpl ghci cmd
-  where cmd = printf ":info %s" val
+  where cmd = printf ":info %s" expr
 
-complete :: Ghci -> Text -> IO [Text]
-complete ghci base = do
+ghciComplete :: Ghci -> Text -> IO [Text]
+ghciComplete ghci base = do
     candidates <- Prelude.tail <$> evalRpl ghci cmd
     return $ Prelude.map (T.init . T.tail) candidates
   where cmd = printf ":complete repl \"%s\"" base
 
+data Candidate = Candidate
+    { completion :: Text
+    , type_ :: Text
+    , info :: Text
+    }
+
+
 completeWithTypes :: Ghci -> Text -> IO [(Text, Text, Text)]
 completeWithTypes ghci base = do
-    candidates <- complete ghci base
-    forM candidates $ \c -> do
-        t <- T.dropWhile isSpace . T.dropWhile (not . isSpace) <$> type_ ghci c
-        i <- T.unlines <$> info ghci c
+    candidates <- ghciComplete ghci base
+    let candidates' = Prelude.take 10 candidates
+    forM candidates' $ \c -> do
+        t <- T.dropWhile isSpace . T.dropWhile (not . isSpace) <$> ghciType ghci c
+        i <- T.unlines <$> ghciInfo ghci c
         return (c, t, i)
 
 evalRpl :: Ghci -> String -> IO [Text]
@@ -117,19 +133,15 @@ evalRpl ghci cmd = Prelude.map T.pack <$> exec ghci cmd
 
 findStart :: Text -> Int -> (Int, Text)
 findStart line col =
-    -- Column is [1..N] and column=X means text in [1..X-1]
-    let (start, _) = T.splitAt (col - 1) line
-     in trace "debug: findStart" $
-        traceShow (line, col) $
+    let (start, _) = T.splitAt (col - 1) line -- Column is [1..N] and column=X means text in [1..X-1]
+     in trace (printf "debug: findStart \"%s\" %d" line col) $
         traceShowId $
         case parseCompletion start of
             Nothing -> (0, "")
             Just (Module mod loc) -> (startCol loc, mod)
             Just (Variable var loc) -> (startCol loc, var)
   where
-    -- The text starts after the index X we return, so [X+1..]
-    startCol (Loc _ c _ _) = c - 1
-
+    startCol (Loc _ c _ _) = c - 1 -- The text starts after the index X we return, so [X+1..]
 
 data Completion = Module Text Loc
                 | ModuleExport Text Loc
@@ -137,14 +149,13 @@ data Completion = Module Text Loc
                 deriving Show
 
 decideCompletion :: [(Token, Text, Loc)] -> Maybe Completion
-decideCompletion tokens =
-    case tokens of
-        (KeywordTok, "import", _):(ConstructorTok, mod, loc):_ -> Just $ Module mod loc
-        token@(_, var, loc):_
-            | (ConstructorTok, _, _) <- token -> Just $ Variable var loc
-            | (OperatorTok, _, _) <- token -> Just $ Variable var loc
-            | (VariableTok, _, _) <- token -> Just $ Variable var loc
-        x -> trace "debug: missing completion case" $ traceShow x Nothing
+decideCompletion [] = Just $ Variable "" (Loc 0 1 0 0)
+decideCompletion ((KeywordTok, "import", _):(ConstructorTok, mod, loc):_) = Just $ Module mod loc
+decideCompletion (token@(_, var, loc):_)
+    | (ConstructorTok, _, _) <- token = Just $ Variable var loc
+    | (OperatorTok, _, _) <- token = Just $ Variable var loc
+    | (VariableTok, _, _) <- token = Just $ Variable var loc
+decideCompletion _ = error "decideCompletion: missing completion case"
 
 parseCompletion :: Text -> Maybe Completion
 parseCompletion line =
@@ -160,9 +171,10 @@ parseCompletion line =
 -- :type-at
 -- :set +c
 -- : complete repl "import Foo.."
+--
 -- https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/ghci.html#ghci-cmd-:complete
 --
--- reload code, reconnect in vim
+-- reload code command
 --
 -- On complete module, instead of :info, use :browse
 --

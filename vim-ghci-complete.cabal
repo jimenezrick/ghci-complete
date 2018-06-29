@@ -16,6 +16,7 @@ executable vim-ghci-complete
     , bytestring
     , aeson
     , unordered-containers
+    , network
     , network-simple
     , vector
     , scientific
