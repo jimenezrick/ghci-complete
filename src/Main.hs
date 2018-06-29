@@ -13,11 +13,13 @@ import Control.Monad (forM, void)
 import Data.Aeson as A
 import Data.ByteString.Char8 as B
 import Data.Char
+import Data.Either
 import Data.HashMap.Strict
 import Data.Maybe
 import Data.Scientific (toBoundedInteger)
 import Data.Text as T
 import Data.Text.IO as T
+import Data.Text.Read as T
 import System.IO hiding (hGetLine)
 import Text.Printf
 
@@ -80,11 +82,15 @@ serve sock ghci = do
 
             let Just id' = (toBoundedInteger id_) :: Maybe Int
             case lookup "findstart" cmd of
+                -- XXX: Check "command": "complete"
                 Just (Number 0) -> do
                     let String base = fromJust $ lookup "base" cmd
-                    results <- Array . V.fromList . Prelude.map fmtInfo <$> completeWithTypes ghci base
+                        Number first = fromJust $ lookup "complete_first" cmd
+                        Number last = fromJust $ lookup "complete_last" cmd
+                    (results, more) <- completeWithTypes ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) base
+                    let results' = Array . V.fromList $ Prelude.map fmtInfo results
                     printf "base => %s\n" base
-                    reply sock id' $ A.Object [("results", results)]
+                    reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
                 Just (String "1") -> do -- XXX: Vim bug https://github.com/vim/vim/pull/2993
                     let String line = fromJust $ lookup "line" cmd
                         Number col  = fromJust $ lookup "column" cmd
@@ -106,11 +112,17 @@ ghciInfo ghci expr = do
     evalRpl ghci cmd
   where cmd = printf ":info %s" expr
 
-ghciComplete :: Ghci -> Text -> IO [Text]
-ghciComplete ghci base = do
-    candidates <- Prelude.tail <$> evalRpl ghci cmd
-    return $ Prelude.map (T.init . T.tail) candidates
-  where cmd = printf ":complete repl \"%s\"" base
+ghciComplete :: Ghci -> Maybe (Int, Int) -> Text -> IO ([Text], Bool)
+ghciComplete ghci range base = do
+    candidates <- evalRpl ghci $ cmd range
+    let [num, total] = Prelude.map parseDigit $ Prelude.take 2 $ T.words $ Prelude.head candidates
+    return (Prelude.map (T.init . T.tail) $ Prelude.tail candidates, more total range)
+  where
+    cmd Nothing = printf ":complete repl \"%s\"" base
+    cmd (Just (first,  last)) = printf ":complete repl %d-%d \"%s\"" first last base
+    parseDigit = fst . fromRight (-1, "") . decimal
+    more total (Just (first, last)) = last < total
+    more _ Nothing = False
 
 data Candidate = Candidate
     { completion :: Text
@@ -118,15 +130,14 @@ data Candidate = Candidate
     , info :: Text
     }
 
-
-completeWithTypes :: Ghci -> Text -> IO [(Text, Text, Text)]
-completeWithTypes ghci base = do
-    candidates <- ghciComplete ghci base
-    let candidates' = Prelude.take 10 candidates
-    forM candidates' $ \c -> do
+completeWithTypes :: Ghci -> Maybe (Int, Int) -> Text -> IO ([(Text, Text, Text)], Bool)
+completeWithTypes ghci range base = do
+    (candidates, more) <- ghciComplete ghci range base
+    candidates' <- forM candidates $ \c -> do
         t <- T.dropWhile isSpace . T.dropWhile (not . isSpace) <$> ghciType ghci c
         i <- T.unlines <$> ghciInfo ghci c
         return (c, t, i)
+    return (candidates', more)
 
 evalRpl :: Ghci -> String -> IO [Text]
 evalRpl ghci cmd = Prelude.map T.pack <$> exec ghci cmd
