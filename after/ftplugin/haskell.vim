@@ -1,4 +1,4 @@
-if exists('b:did_ftplugin_ghci_complete') && b:did_ftplugin_ghci_complete
+if exists('b:did_ftplugin_ghci_complete')
 	finish
 endif
 let b:did_ftplugin_ghci_complete = 1
@@ -9,5 +9,3 @@ setlocal completeopt+=preview
 setlocal omnifunc=ghci#omnifunc
 
 autocmd TextChangedI <buffer> :pclose
-
-" TODO: haskell syntax preview window: http://vimdoc.sourceforge.net/htmldoc/windows.html
