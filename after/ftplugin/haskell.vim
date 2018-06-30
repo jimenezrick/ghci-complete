@@ -7,6 +7,7 @@ let g:ghci_complete_batch_size = 10
 
 setlocal completeopt+=preview
 setlocal omnifunc=ghci#omnifunc
-autocmd TextChangedI * :pclose
+
+autocmd TextChangedI <buffer> :pclose
 
 " TODO: haskell syntax preview window: http://vimdoc.sourceforge.net/htmldoc/windows.html
