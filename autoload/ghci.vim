@@ -1,7 +1,7 @@
 function! s:connect_ghci() abort
 	let l:addr = readfile('.ghci_complete')[0]
 	echomsg printf('Connecting to GHCi server: %s', l:addr)
-	let b:ghci_chan = ch_open(l:addr, {"timeout":2000})
+	let b:ghci_chan = ch_open(l:addr, {"timeout": g:ghci_complete_timeout})
 endfunction
 
 function! s:send_command(command) abort

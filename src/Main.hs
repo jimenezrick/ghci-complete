@@ -194,6 +194,10 @@ parseCompletion line =
     dropSpaces = Prelude.filter ((SpaceTok /=) . fst)
 
 -- :type-at :set +c
+-- :loc-at
+-- expand('<cWORD>')
+--
+--
 --
 -- https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/ghci.html#ghci-cmd-:complete
 --
