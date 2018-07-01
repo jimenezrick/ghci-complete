@@ -1,59 +1,52 @@
-import Prelude hiding (lookup, hGetLine)
-
 import Debug.Trace
 
-import Control.Applicative
-import Control.Exception (SomeException, bracket, try)
-import Control.Monad (forM, void)
+import Control.Monad (forM)
 import Data.Aeson as A
-import Data.ByteString.Char8 as B
+import Data.ByteString.Char8 (ByteString)
 import Data.Char
 import Data.Either
-import Data.HashMap.Strict
 import Data.Maybe
 import Data.Scientific (toBoundedInteger)
-import Data.Text as T
-import Data.Text.IO as T
-import Data.Text.Read as T
-import System.IO hiding (hGetLine)
+import Data.Text (Text)
 import Text.Printf
 
 import GHC.SyntaxHighlighter
-
-import System.Posix.Files (createNamedPipe)
 import Language.Haskell.Ghcid
 
+import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
-import qualified Network.Simple.TCP as T
+import qualified Data.HashMap.Strict as H
+import qualified Data.Text as T
+import qualified Data.Text.Read as T
 import qualified Data.Vector as V
-import qualified Network.Socket as S
+import qualified Network.Simple.TCP as T
 
 -- TODO: send {"action": "reload"} on write?
 
 main :: IO ()
 main = do
-    Prelude.putStrLn "Running server..."
+    putStrLn "Running server..."
     writeAddressFile ".ghci_complete" "8000"
     T.serve
         T.HostAny
         "8000" -- XXX: make it random
         (\(sock, _addr) -> do
-             Prelude.putStrLn "Client connected"
-             (ghci, load) <- startGhci "cabal new-repl" Nothing printOutput
+             putStrLn "Client connected"
+             (ghci, _load) <- startGhci "cabal new-repl" Nothing printOutput
              serve sock ghci)
   where
-    printOutput stream text = Prelude.putStrLn text
+    printOutput _stream text = putStrLn text
 
 writeAddressFile :: FilePath -> T.ServiceName -> IO ()
 writeAddressFile path port = do
-    Prelude.writeFile path $ printf "localhost:%s\n" port
+    writeFile path $ printf "localhost:%s\n" port
 
 recv :: T.Socket -> IO (Maybe ByteString)
 recv sock = T.recv sock (1024 * 1024)
 
 reply :: T.Socket -> Int -> Value -> IO ()
 reply sock id' resp = do
-    Prelude.putStrLn "reply"
+    putStrLn "reply"
     T.send sock . BL.toStrict . encode . Array $ V.fromList [Number $ fromIntegral id', resp]
 
 serve :: T.Socket -> Ghci -> IO ()
@@ -61,9 +54,9 @@ serve sock ghci = do
     line <- recv sock
     case line of
         Nothing ->
-            Prelude.putStrLn "Connection closed"
+            putStrLn "Connection closed"
         Just line' -> do
-            Prelude.putStr "Command: "
+            putStr "Command: "
             B.putStrLn line'
 
             let msg = case eitherDecodeStrict line' of
@@ -75,25 +68,25 @@ serve sock ghci = do
                                      _ -> error "Fuck"
 
             let Just id' = (toBoundedInteger id_) :: Maybe Int
-            case lookup "command" cmd of
+            case H.lookup "command" cmd of
                 Just (String "findstart") -> do
-                    let String line  = fromJust $ lookup "line" cmd
-                        Number col  = fromJust $ lookup "column" cmd
+                    let String line  = fromJust $ H.lookup "line" cmd
+                        Number col  = fromJust $ H.lookup "column" cmd
 
                         (_, start) = findStart line (fromJust $ toBoundedInteger col)
 
                     reply sock id' $ A.Object [("start", A.Number $ fromIntegral start)]
 
                 Just (String "complete") -> do
-                    let Number col  = fromJust $ lookup "column" cmd
-                        String line  = fromJust $ lookup "line" cmd
-                        Number first = fromJust $ lookup "complete_first" cmd
-                        Number last = fromJust $ lookup "complete_last" cmd
+                    let Number col  = fromJust $ H.lookup "column" cmd
+                        String line  = fromJust $ H.lookup "line" cmd
+                        Number first = fromJust $ H.lookup "complete_first" cmd
+                        Number last = fromJust $ H.lookup "complete_last" cmd
 
                         (candidate, _) = findStart line (fromJust $ toBoundedInteger col)
 
                     (results, more) <- performCompletion ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) candidate
-                    let results' = Array . V.fromList $ Prelude.map fmtCandidate results
+                    let results' = Array . V.fromList $ map fmtCandidate results
                     reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
 
                 _ -> error "Error: unknown received command"
@@ -102,32 +95,29 @@ serve sock ghci = do
   where fmtCandidate (Candidate c  t  i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
 ghciType :: Ghci -> Text -> IO Text
-ghciType ghci expr = do
-    Prelude.head <$> evalRpl ghci cmd
+ghciType ghci expr = head <$> evalRpl ghci cmd
   where cmd = printf ":type %s" expr
 
 ghciInfo :: Ghci -> Text -> IO [Text]
-ghciInfo ghci expr = do
-    evalRpl ghci cmd
+ghciInfo ghci expr = evalRpl ghci cmd
   where cmd = printf ":info %s" expr
 
 ghciBrowse :: Ghci -> Text -> IO [Text]
-ghciBrowse ghci expr = do
-    evalRpl ghci cmd
+ghciBrowse ghci expr = evalRpl ghci cmd
   where cmd = printf ":browse %s" expr
 
 ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO ([Text], Bool)
 ghciComplete ghci range compl = do
     candidates <- evalRpl ghci $ cmd range
-    let [num, total] = Prelude.map parseDigit $ Prelude.take 2 $ T.words $ Prelude.head candidates
-    return (Prelude.map (T.init . T.tail) $ Prelude.tail candidates, more total range)
+    let [num, total] = map parseDigit $ take 2 $ T.words $ head candidates
+    return (map (T.init . T.tail) $ tail candidates, more total range)
   where
     prefix (Module mod _) = printf "import %s" (T.unpack mod)
     prefix (ModuleExport mod var _) = printf "%s.%s" (T.unpack mod) (T.unpack var) -- FIXME: remove module from results
     prefix (Variable var _) = T.unpack var
     cmd Nothing = printf ":complete repl \"%s\"" $ prefix compl
     cmd (Just (first,  last)) = printf ":complete repl %d-%d \"%s\"" first last $ prefix compl
-    parseDigit = fst . fromRight (-1, "") . decimal
+    parseDigit = fst . fromRight (-1, "") . T.decimal
     more total (Just (first, last)) = last < total
     more _ Nothing = False
 
@@ -150,7 +140,7 @@ performCompletion ghci range compl = do
     return (candidates', more)
 
 evalRpl :: Ghci -> String -> IO [Text]
-evalRpl ghci cmd = Prelude.map T.pack <$> exec ghci cmd
+evalRpl ghci cmd = map T.pack <$> exec ghci cmd
 
 findStart :: Text -> Int -> (Completion, Int)
 findStart line col =
@@ -158,7 +148,7 @@ findStart line col =
      in trace (printf "debug: findStart \"%s\" %d" line col) $
         traceShowId $
         case parseCompletion start of
-            Nothing -> (Variable "" (Loc 1 col 1 col), col) -- XXX?
+            Nothing -> (Variable "" (Loc 1 col 1 col), col)
             Just mod@(Module _ loc) -> (mod, startCol loc)
             Just var@(Variable _ loc) -> (var, startCol loc)
   where
@@ -171,28 +161,37 @@ data Completion = Module Text Loc
 
 decideCompletion :: [(Token, Text, Loc)] -> Maybe Completion
 decideCompletion [] = Just $ Variable "" (Loc 0 1 0 0)
+decideCompletion ((KeywordTok, "import", _):(ConstructorTok, mod, loc):(OperatorTok, ".", _):_) =
+    Just $ Module (mod `T.append` ".") loc
 decideCompletion ((KeywordTok, "import", _):(ConstructorTok, mod, loc):_) = Just $ Module mod loc
-decideCompletion (token@(_, var, loc):_)
-    | (ConstructorTok, _, _) <- token = Just $ Variable var loc
-    | (OperatorTok, _, _) <- token = Just $ Variable var loc
-    | (VariableTok, _, _) <- token = Just $ Variable var loc
-decideCompletion _ = error "decideCompletion: missing completion case"
+decideCompletion ((KeywordTok, "import", _):(KeywordTok, "qualified", _):(ConstructorTok, mod, loc):(OperatorTok, ".", _):_) =
+    Just $ Module (mod `T.append` ".") loc
+decideCompletion ((KeywordTok, "import", _):(KeywordTok, "qualified", _):(ConstructorTok, mod, loc):_) =
+    Just $ Module mod loc
+decideCompletion tokens
+    | [(ConstructorTok, var, loc), (OperatorTok, ".", _)] <- takeLast 2 tokens =
+        Just $ Variable (var `T.append` ".") loc
+    | [(ConstructorTok, var, loc)] <- takeLast 1 tokens = Just $ Variable var loc
+    | [(VariableTok, var, loc)] <- takeLast 1 tokens = Just $ Variable var loc
+    | otherwise = error "decideCompletion: missing completion case"
+  where
+    takeLast n = reverse . take n . reverse
 
 parseCompletion :: Text -> Maybe Completion
 parseCompletion line =
     case (dropSpaces <$> tokenizeHaskell line, tokenizeHaskellLoc line) of
         (Just tokens, Just locs) ->
-            let tokens' = zip3 (Prelude.map fst tokens) (Prelude.map snd tokens) (Prelude.map snd locs)
+            let tokens' = zip3 (map fst tokens) (map snd tokens) (map snd locs)
              in decideCompletion tokens'
         _ -> Nothing
   where
-    dropSpaces = Prelude.filter ((SpaceTok /=) . fst)
+    dropSpaces = filter ((SpaceTok /=) . fst)
 
 -- :type-at :set +c
 -- :loc-at
 -- expand('<cWORD>')
 --
---
+-- Operators "!!" need to be done with :type (!!)
 --
 -- https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/ghci.html#ghci-cmd-:complete
 --

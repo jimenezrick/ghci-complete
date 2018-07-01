@@ -22,14 +22,12 @@ executable vim-ghci-complete
   ghc-options: -O2 -threaded -Wall -Wmissing-import-lists
   build-depends:
       base >=4.7 && <5
-    , text
-    , ghcid
-    , unix
     , bytestring
+    , text
     , aeson
-    , unordered-containers
-    , network
-    , network-simple
-    , vector
     , scientific
+    , vector
+    , unordered-containers
+    , network-simple
     , ghc-syntax-highlighter
+    , ghcid
