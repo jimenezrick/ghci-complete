@@ -1,8 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedLists #-}
-
-module Main where
-
 import Prelude hiding (lookup, hGetLine)
 
 import Debug.Trace
