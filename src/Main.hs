@@ -87,43 +87,47 @@ serve sock ghci = do
                         Number first = fromJust $ H.lookup "complete_first" cmd
                         Number last = fromJust $ H.lookup "complete_last" cmd
                         (candidate, _) = findStart line (fromJust $ toBoundedInteger col)
-                    (results, more) <-
-                        performCompletion
-                            ghci
-                            (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last))
-                            candidate
-                    let results' = Array . V.fromList $ map fmtCandidate results
-                    reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
+                    let first' = fromJust $ toBoundedInteger first
+                        last' = fromJust $ toBoundedInteger last
+                    completion <- performCompletion ghci (Just (first', last')) candidate
+                    case completion of
+                        Just (results, more) -> do
+                            let results' = Array . V.fromList $ map fmtCandidate results
+                            reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
+                        Nothing -> error "Error: completion failed"
                 _ -> error "Error: unknown received command"
             serve sock ghci
   where
     fmtCandidate (Candidate c t i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
-ghciType :: Ghci -> Text -> IO Text
+ghciType :: Ghci -> Text -> IO (Maybe Text)
 ghciType ghci expr
-    | Just [(OperatorTok, op)] <- tokenizeHaskell expr =
-        T.unwords . map T.stripStart <$> evalRpl ghci (printf ":type (%s)" op)
-    | otherwise = T.unwords . map T.stripStart <$> evalRpl ghci (printf ":type %s" expr)
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = fmap joinLines <$> evalExpr ghci (printf ":type (%s)" op)
+    | otherwise = fmap joinLines <$> evalExpr ghci (printf ":type %s" expr)
+  where
+    joinLines = T.unwords . map T.stripStart
 
-ghciInfo :: Ghci -> Text -> IO [Text]
+ghciInfo :: Ghci -> Text -> IO (Maybe [Text])
 ghciInfo ghci expr
-    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = evalRpl ghci $ printf ":info (%s)" op
-    | otherwise = evalRpl ghci $ printf ":info %s" expr
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = evalExpr ghci $ printf ":info (%s)" op
+    | otherwise = evalExpr ghci $ printf ":info %s" expr
 
-ghciBrowse :: Ghci -> Text -> IO [Text]
-ghciBrowse ghci mod = evalRpl ghci $ printf ":browse %s" mod
+ghciBrowse :: Ghci -> Text -> IO (Maybe [Text])
+ghciBrowse ghci mod = evalExpr ghci $ printf ":browse %s" mod
 
-ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO ([Text], Bool)
+ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Text], Bool))
 ghciComplete ghci range compl = do
-    candidates <- evalRpl ghci $ cmd range
-    let [num, total] = map parseDigit $ take 2 $ T.words $ head candidates
-    return (map (T.init . T.tail) $ tail candidates, more total range)
+    candidates <- evalExpr ghci $ cmd range
+    return $ do
+        cs <- candidates
+        let [_num, total] = map parseDigit $ take 2 $ T.words $ head cs
+        return (map (T.init . T.tail) $ tail cs, more total range)
   where
     prefix (Module mod _) = printf "import %s" (T.unpack mod)
     prefix (ModuleExport mod var _) = printf "%s.%s" (T.unpack mod) (T.unpack var) -- FIXME: remove module from results
     prefix (Variable var _) = T.unpack var
     cmd Nothing = printf ":complete repl \"%s\"" $ prefix compl
-    cmd (Just (first,  last)) = printf ":complete repl %d-%d \"%s\"" first last $ prefix compl
+    cmd (Just (first, last)) = printf ":complete repl %d-%d \"%s\"" first last $ prefix compl
     parseDigit = fst . fromRight (-1, "") . T.decimal
     more total (Just (first, last)) = last < total
     more _ Nothing = False
@@ -134,20 +138,31 @@ data Candidate = Candidate
     , info :: Text
     }
 
-performCompletion :: Ghci -> Maybe (Int, Int) -> Completion -> IO ([Candidate], Bool)
+performCompletion :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Candidate], Bool))
 performCompletion ghci range compl = do
-    (candidates, more) <- ghciComplete ghci range compl
-    candidates' <- forM candidates $ \c -> do
-        t <- T.dropWhile isSpace . T.dropWhile (not . isSpace) <$> ghciType ghci c
-        i <- T.unlines <$> case compl of
-                               (Module mod _) -> ghciBrowse ghci c
-                               (ModuleExport mod var _) -> ghciInfo ghci c -- XXX: build prefix?
-                               (Variable var _) -> ghciInfo ghci c
-        return $ Candidate c t i
-    return (candidates', more)
+    completion <- ghciComplete ghci range compl
+    case completion of
+        Just (candidates, more) -> do
+            candidates' <-
+                forM candidates $ \c -> do
+                    -- This can fail when using :info on a type
+                    t <- maybe "" (T.dropWhile isSpace . T.dropWhile (not . isSpace)) <$> ghciType ghci c
+                    i <-
+                        fmap T.unlines <$>
+                        case compl of
+                            (Module mod _) -> ghciBrowse ghci c
+                            (ModuleExport mod var _) -> ghciInfo ghci c -- XXX: build prefix?
+                            (Variable var _) -> ghciInfo ghci c
+                    return $ Candidate c t (fromMaybe (error "performCompletion: ghci failed") i)
+            return $ Just (candidates', more)
+        Nothing -> return Nothing
 
-evalRpl :: Ghci -> String -> IO [Text]
-evalRpl ghci cmd = map T.pack <$> exec ghci cmd
+evalExpr :: Ghci -> String -> IO (Maybe [Text])
+evalExpr ghci cmd = do
+    out <- exec ghci cmd
+    case map words out of
+        []:("<interactive>:1:1:":"error:":_):_ -> return Nothing
+        _ -> return . Just $ map T.pack out
 
 findStart :: Text -> Int -> (Completion, Int)
 findStart line col =
