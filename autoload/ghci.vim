@@ -38,9 +38,9 @@ function! ghci#omnifunc(findstart, base) abort
 
 	while 1
 		try
-			echomsg printf('GHCi <= Command: %s', l:cmd)
+			"echomsg printf('GHCi <= Command: %s', l:cmd)
 			let l:resp = s:send_command(l:cmd)
-			echomsg printf('GHCi => Response: %s', l:resp)
+			"echomsg printf('GHCi => Response: %s', l:resp)
 		catch /error_connect_ghci/
 			echohl WarningMsg | echomsg 'Error: failed to connect to GHCi server' | echohl None
 			return -1
