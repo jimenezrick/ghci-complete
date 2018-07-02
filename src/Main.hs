@@ -49,6 +49,7 @@ writeAddressFile :: FilePath -> T.ServiceName -> IO ()
 writeAddressFile path port = do
     writeFile path $ printf "localhost:%s\n" port
 
+-- XXX: Try to parse the JSON, if it fails, fetch more
 recv :: T.Socket -> IO (Maybe ByteString)
 recv sock = T.recv sock (1024 * 1024)
 
@@ -61,51 +62,47 @@ serve :: T.Socket -> Ghci -> IO ()
 serve sock ghci = do
     line <- recv sock
     case line of
-        Nothing ->
-            putStrLn "Connection closed"
+        Nothing -> putStrLn "Connection closed"
         Just line' -> do
             putStr "Command: "
             B.putStrLn line'
-
-            let msg = case eitherDecodeStrict line' of
+            let msg =
+                    case eitherDecodeStrict line' of
                         Left err -> error err
                         Right msg -> msg
-
-                (Number id_, Object cmd) = case msg of
-                                     Array array -> (array V.! 0, array V.! 1)
-                                     _ -> error "Fuck"
-
+                (Number id_, Object cmd) =
+                    case msg of
+                        Array array -> (array V.! 0, array V.! 1)
+                        _ -> error "Fuck"
             let Just id' = (toBoundedInteger id_) :: Maybe Int
             case H.lookup "command" cmd of
                 Just (String "findstart") -> do
-                    let String line  = fromJust $ H.lookup "line" cmd
-                        Number col  = fromJust $ H.lookup "column" cmd
-
+                    let String line = fromJust $ H.lookup "line" cmd
+                        Number col = fromJust $ H.lookup "column" cmd
                         (_, start) = findStart line (fromJust $ toBoundedInteger col)
-
                     reply sock id' $ A.Object [("start", A.Number $ fromIntegral start)]
-
                 Just (String "complete") -> do
-                    let Number col  = fromJust $ H.lookup "column" cmd
-                        String line  = fromJust $ H.lookup "line" cmd
+                    let Number col = fromJust $ H.lookup "column" cmd
+                        String line = fromJust $ H.lookup "line" cmd
                         Number first = fromJust $ H.lookup "complete_first" cmd
                         Number last = fromJust $ H.lookup "complete_last" cmd
-
                         (candidate, _) = findStart line (fromJust $ toBoundedInteger col)
-
-                    (results, more) <- performCompletion ghci (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last)) candidate
+                    (results, more) <-
+                        performCompletion
+                            ghci
+                            (Just (fromJust $ toBoundedInteger first, fromJust $ toBoundedInteger last))
+                            candidate
                     let results' = Array . V.fromList $ map fmtCandidate results
                     reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
-
                 _ -> error "Error: unknown received command"
             serve sock ghci
-
-  where fmtCandidate (Candidate c  t  i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
+  where
+    fmtCandidate (Candidate c t i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
 ghciType :: Ghci -> Text -> IO Text
 ghciType ghci expr
-    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = head <$> (evalRpl ghci $ printf ":type (%s)" op)
-    | otherwise = head <$> (evalRpl ghci $ printf ":type %s" expr)
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = head <$> evalRpl ghci (printf ":type (%s)" op)
+    | otherwise = head <$> evalRpl ghci (printf ":type %s" expr)
 
 ghciInfo :: Ghci -> Text -> IO [Text]
 ghciInfo ghci expr
@@ -113,9 +110,7 @@ ghciInfo ghci expr
     | otherwise = evalRpl ghci $ printf ":info %s" expr
 
 ghciBrowse :: Ghci -> Text -> IO [Text]
-ghciBrowse ghci expr = evalRpl ghci cmd
-  where
-    cmd = printf ":browse %s" expr
+ghciBrowse ghci mod = evalRpl ghci $ printf ":browse %s" mod
 
 ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO ([Text], Bool)
 ghciComplete ghci range compl = do
@@ -170,7 +165,7 @@ data Completion = Module Text Loc
                 | Variable Text Loc
                 deriving Show
 
--- TODO ModuleExport
+-- TODO: ModuleExport
 decideCompletion :: [(Token, Text, Loc)] -> Maybe Completion
 decideCompletion [] = Just $ Variable "" (Loc 0 1 0 0)
 decideCompletion ((KeywordTok, "import", _):(ConstructorTok, mod, loc):(OperatorTok, ".", _):_) =
