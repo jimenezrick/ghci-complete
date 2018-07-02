@@ -19,7 +19,7 @@ import qualified Data.HashMap.Strict as H
 import qualified Data.Text as T
 import qualified Data.Text.Read as T
 import qualified Data.Vector as V
-import qualified Network.Simple.TCP as T
+import qualified Network.Simple.TCP as N
 
 -- TODO: send {"action": "reload"} on write?
 
@@ -35,8 +35,8 @@ main :: IO ()
 main = do
     putStrLn "Running server..."
     writeAddressFile ".ghci_complete" "8000"
-    T.serve
-        T.HostAny
+    N.serve
+        N.HostAny
         "8000" -- XXX: make it random
         (\(sock, _addr) -> do
              putStrLn "Client connected"
@@ -45,20 +45,20 @@ main = do
   where
     printOutput _stream text = putStrLn text
 
-writeAddressFile :: FilePath -> T.ServiceName -> IO ()
+writeAddressFile :: FilePath -> N.ServiceName -> IO ()
 writeAddressFile path port = do
     writeFile path $ printf "localhost:%s\n" port
 
 -- XXX: Try to parse the JSON, if it fails, fetch more
-recv :: T.Socket -> IO (Maybe ByteString)
-recv sock = T.recv sock (1024 * 1024)
+recv :: N.Socket -> IO (Maybe ByteString)
+recv sock = N.recv sock (1024 * 1024)
 
-reply :: T.Socket -> Int -> Value -> IO ()
+reply :: N.Socket -> Int -> Value -> IO ()
 reply sock id' resp = do
     putStrLn "reply"
-    T.send sock . BL.toStrict . encode . Array $ V.fromList [Number $ fromIntegral id', resp]
+    N.send sock . BL.toStrict . encode . Array $ V.fromList [Number $ fromIntegral id', resp]
 
-serve :: T.Socket -> Ghci -> IO ()
+serve :: N.Socket -> Ghci -> IO ()
 serve sock ghci = do
     line <- recv sock
     case line of
@@ -101,8 +101,9 @@ serve sock ghci = do
 
 ghciType :: Ghci -> Text -> IO Text
 ghciType ghci expr
-    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = head <$> evalRpl ghci (printf ":type (%s)" op)
-    | otherwise = head <$> evalRpl ghci (printf ":type %s" expr)
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr =
+        T.unwords . map T.stripStart <$> evalRpl ghci (printf ":type (%s)" op)
+    | otherwise = T.unwords . map T.stripStart <$> evalRpl ghci (printf ":type %s" expr)
 
 ghciInfo :: Ghci -> Text -> IO [Text]
 ghciInfo ghci expr
