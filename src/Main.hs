@@ -23,6 +23,14 @@ import qualified Network.Simple.TCP as T
 
 -- TODO: send {"action": "reload"} on write?
 
+-- :type-at :set +c
+-- :loc-at
+-- expand('<cWORD>')
+--
+-- reload code command
+--
+-- https://github.com/dramforever/vscode-ghc-simple
+
 main :: IO ()
 main = do
     putStrLn "Running server..."
@@ -95,16 +103,19 @@ serve sock ghci = do
   where fmtCandidate (Candidate c  t  i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
 ghciType :: Ghci -> Text -> IO Text
-ghciType ghci expr = head <$> evalRpl ghci cmd
-  where cmd = printf ":type %s" expr
+ghciType ghci expr
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = head <$> (evalRpl ghci $ printf ":type (%s)" op)
+    | otherwise = head <$> (evalRpl ghci $ printf ":type %s" expr)
 
 ghciInfo :: Ghci -> Text -> IO [Text]
-ghciInfo ghci expr = evalRpl ghci cmd
-  where cmd = printf ":info %s" expr
+ghciInfo ghci expr
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = evalRpl ghci $ printf ":info (%s)" op
+    | otherwise = evalRpl ghci $ printf ":info %s" expr
 
 ghciBrowse :: Ghci -> Text -> IO [Text]
 ghciBrowse ghci expr = evalRpl ghci cmd
-  where cmd = printf ":browse %s" expr
+  where
+    cmd = printf ":browse %s" expr
 
 ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO ([Text], Bool)
 ghciComplete ghci range compl = do
@@ -159,6 +170,7 @@ data Completion = Module Text Loc
                 | Variable Text Loc
                 deriving Show
 
+-- TODO ModuleExport
 decideCompletion :: [(Token, Text, Loc)] -> Maybe Completion
 decideCompletion [] = Just $ Variable "" (Loc 0 1 0 0)
 decideCompletion ((KeywordTok, "import", _):(ConstructorTok, mod, loc):(OperatorTok, ".", _):_) =
@@ -186,15 +198,3 @@ parseCompletion line =
         _ -> Nothing
   where
     dropSpaces = filter ((SpaceTok /=) . fst)
-
--- :type-at :set +c
--- :loc-at
--- expand('<cWORD>')
---
--- Operators "!!" need to be done with :type (!!)
---
--- https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/ghci.html#ghci-cmd-:complete
---
--- reload code command
---
--- https://github.com/dramforever/vscode-ghc-simple
