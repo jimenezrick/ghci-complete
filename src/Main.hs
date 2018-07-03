@@ -22,11 +22,6 @@ import qualified Data.Vector as V
 import qualified Network.Simple.TCP as N
 
 -- TODO: send {"action": "reload"} on write?
-
--- :type-at :set +c
--- :loc-at
--- expand('<cWORD>')
---
 -- reload code command
 --
 -- https://github.com/dramforever/vscode-ghc-simple
@@ -95,10 +90,30 @@ serve sock ghci = do
                             let results' = Array . V.fromList $ map fmtCandidate results
                             reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
                         Nothing -> error "Error: completion failed"
+                Just (String "typeat") -> do
+                    let String file = fromJust $ H.lookup "file" cmd
+                        Number col = fromJust $ H.lookup "column" cmd
+                        Number line = fromJust $ H.lookup "line" cmd
+                        String under = fromJust $ H.lookup "under" cmd
+                    let col' = fromJust $ toBoundedInteger col
+                        line' = fromJust $ toBoundedInteger line
+                    type_ <- ghciTypeAt ghci (T.unpack file) line' col' (line' + 1) (col' + 1) under
+                    case type_ of
+                        Just (type') -> do
+                            reply sock id' $ A.Object [("type", A.String type'), ("expr", A.String under)]
+                        Nothing -> error "Error: type inference failed"
                 _ -> error "Error: unknown received command"
             serve sock ghci
   where
     fmtCandidate (Candidate c t i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
+
+-- TODO: tokenize line and find right expression
+ghciTypeAt :: Ghci -> FilePath -> Int -> Int -> Int -> Int -> Text -> IO (Maybe Text)
+ghciTypeAt ghci file line col line' col' expr
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = fmap joinLines <$> evalExpr ghci (printf ":type-at %s %d %d %d %d %s" file line col line' col' expr)
+    | otherwise = fmap joinLines <$> evalExpr ghci (printf ":type-at %s %d %d %d %d %s" file line col line' col' expr)
+  where
+    joinLines = T.unwords . map T.stripStart
 
 ghciType :: Ghci -> Text -> IO (Maybe Text)
 ghciType ghci expr
@@ -167,9 +182,7 @@ evalExpr ghci cmd = do
 findStart :: Text -> Int -> (Completion, Int)
 findStart line col =
     let (start, _) = T.splitAt (col - 1) line -- Column is [1..N] and column=X means text in [1..X-1]
-     in trace (printf "debug: findStart \"%s\" %d" line col) $
-        traceShowId $
-        case parseCompletion start of
+     in case parseCompletion start of
             Nothing -> (Variable "" (Loc 1 col 1 col), col)
             Just mod@(Module _ loc) -> (mod, startCol loc)
             Just var@(Variable _ loc) -> (var, startCol loc)

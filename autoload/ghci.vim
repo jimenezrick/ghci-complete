@@ -78,3 +78,17 @@ function! ghci#omnifunc(findstart, base) abort
 		endif
 	endwhile
 endfun
+
+function! ghci#typeat() abort
+	let l:cmd = {
+	\    'command': 'typeat',
+	\    'file': expand('%'),
+	\    'line': line('.'),
+	\    'column': col('.'),
+	\    'under': expand('<cWORD>'),
+	\ }
+
+	" XXX: handle errors
+	let l:resp = s:send_command(l:cmd)
+	echomsg printf("%s :: %s", l:resp['expr'], l:resp['type'])
+endfun
