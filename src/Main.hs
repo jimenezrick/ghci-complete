@@ -153,6 +153,9 @@ data Candidate = Candidate
     }
 
 performCompletion :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Candidate], Bool))
+performCompletion _ _ (Extension ext _) =
+    let extensions = filter (T.isPrefixOf ext) ghcExtensions
+     in return $ Just (map (\e -> Candidate e "" "") extensions, False)
 performCompletion ghci range compl = do
     completion <- ghciComplete ghci range compl
     case completion of
@@ -164,9 +167,10 @@ performCompletion ghci range compl = do
                     i <-
                         fmap T.unlines <$>
                         case compl of
-                            (Module mod _) -> ghciBrowse ghci c
-                            (ModuleExport mod var _) -> ghciInfo ghci c -- XXX: build prefix?
-                            (Variable var _) -> ghciInfo ghci c
+                            (Module _ _) -> ghciBrowse ghci c
+                            (ModuleExport _ _ _) -> ghciInfo ghci c -- XXX: build prefix?
+                            (Variable _ _) -> ghciInfo ghci c
+                            (Extension _ _) -> error "performCompletion: impossible"
                     return $ Candidate c t (fromMaybe (error "performCompletion: ghci failed") i)
             return $ Just (candidates', more)
         Nothing -> return Nothing
@@ -185,12 +189,14 @@ findStart line col =
             Nothing -> (Variable "" (Loc 1 col 1 col), col)
             Just mod@(Module _ loc) -> (mod, startCol loc)
             Just var@(Variable _ loc) -> (var, startCol loc)
+            Just ext@(Extension _ loc) -> (ext, startCol loc)
   where
     startCol (Loc _ c _ _) = c - 1 -- The text starts after the index X we return, so [X+1..]
 
 data Completion = Module Text Loc
                 | ModuleExport Text Text Loc
                 | Variable Text Loc
+                | Extension Text Loc
                 deriving Show
 
 -- TODO: ModuleExport
@@ -214,10 +220,129 @@ decideCompletion tokens
 
 parseCompletion :: Text -> Maybe Completion
 parseCompletion line =
-    case (dropSpaces <$> tokenizeHaskell line, tokenizeHaskellLoc line) of
+    case (filter ((SpaceTok /=) . fst) <$> tokenizeHaskell line, tokenizeHaskellLoc line) of
         (Just tokens, Just locs) ->
             let tokens' = zip3 (map fst tokens) (map snd tokens) (map snd locs)
              in decideCompletion tokens'
-        _ -> Nothing
+        _ ->
+            case tokenizeWords line of
+                [("{-#", _), ("LANGUAGE", _)] -> Just . Extension "" . locN $ T.length line + 1
+                ("{-#", _):("LANGUAGE", _):(pre, loc):_ -> Just $ Extension pre loc
+                _ -> Nothing
   where
-    dropSpaces = filter ((SpaceTok /=) . fst)
+    locN n = Loc 1 n 1 1
+
+tokenizeWords :: Text -> [(Text, Loc)]
+tokenizeWords line = map toToken . wordsCols $ zip (T.unpack line) [1 ..]
+  where
+    toToken cs = (T.pack $ map fst cs, Loc 1 (snd $ head cs) 1 1)
+    wordsCols s =
+        case dropWhile (isSpace . fst) s of
+            [] -> []
+            s' -> w : wordsCols s''
+                where (w, s'') = break (isSpace . fst) s'
+
+-- Listed in: https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/glasgow_exts.html
+ghcExtensions :: [Text]
+ghcExtensions =
+    [ "AllowAmbiguousTypes"
+    , "ApplicativeDo"
+    , "Arrows"
+    , "BangPatterns"
+    , "BinaryLiterals"
+    , "CApiFFI"
+    , "ConstrainedClassMethods"
+    , "ConstraintKinds"
+    , "CPP"
+    , "DataKinds"
+    , "DatatypeContexts"
+    , "DefaultSignatures"
+    , "DeriveAnyClass"
+    , "DeriveDataTypeable"
+    , "DeriveFoldable"
+    , "DeriveFunctor"
+    , "DeriveGeneric"
+    , "DeriveLift"
+    , "DeriveTraversable"
+    , "DerivingStrategies"
+    , "DisambiguateRecordFields"
+    , "DuplicateRecordFields"
+    , "EmptyCase"
+    , "EmptyDataDecls"
+    , "ExistentialQuantification"
+    , "ExplicitForAll"
+    , "ExplicitNamespaces"
+    , "ExtendedDefaultRules"
+    , "FlexibleContexts"
+    , "FlexibleInstances"
+    , "ForeignFunctionInterface"
+    , "FunctionalDependencies"
+    , "GADTs"
+    , "GADTSyntax"
+    , "GeneralisedNewtypeDeriving"
+    , "ImplicitParams"
+    , "ImplicitPrelude"
+    , "ImpredicativeTypes"
+    , "IncoherentInstances"
+    , "InstanceSigs"
+    , "InterruptibleFFI"
+    , "KindSignatures"
+    , "LambdaCase"
+    , "LiberalTypeSynonyms"
+    , "MagicHash"
+    , "MonadComprehensions"
+    , "MonadFailDesugaring"
+    , "MonoLocalBinds"
+    , "MonomorphismRestriction"
+    , "MultiParamTypeClasses"
+    , "MultiWayIf"
+    , "NamedFieldPuns"
+    , "NamedWildCards"
+    , "NegativeLiterals"
+    , "NPlusKPatterns"
+    , "NullaryTypeClasses"
+    , "NumDecimals"
+    , "OverlappingInstances"
+    , "OverloadedLabels"
+    , "OverloadedLists"
+    , "OverloadedStrings"
+    , "PackageImports"
+    , "ParallelListComp"
+    , "PartialTypeSignatures"
+    , "PatternGuards"
+    , "PatternSynonyms"
+    , "PolyKinds"
+    , "PostfixOperators"
+    , "QuasiQuotes"
+    , "Rank2Types"
+    , "RankNTypes"
+    , "RebindableSyntax"
+    , "RecordWildCards"
+    , "RecursiveDo"
+    , "RoleAnnotations"
+    , "Safe"
+    , "ScopedTypeVariables"
+    , "StandaloneDeriving"
+    , "StaticPointers"
+    , "Strict"
+    , "StrictData"
+    , "TemplateHaskell"
+    , "TemplateHaskellQuotes"
+    , "TraditionalRecordSyntax"
+    , "TransformListComp"
+    , "Trustworthy"
+    , "TupleSections"
+    , "TypeApplications"
+    , "TypeFamilies"
+    , "TypeFamilyDependencies"
+    , "TypeInType"
+    , "TypeOperators"
+    , "TypeSynonymInstances"
+    , "UnboxedSums"
+    , "UnboxedTuples"
+    , "UndecidableInstances"
+    , "UndecidableSuperClasses"
+    , "UnicodeSyntax"
+    , "Unsafe"
+    , "ViewPatterns"
+    ]
