@@ -1,1 +1,8 @@
+-- Needed for :type-at
 :set +c
+
+-- For faster loading
+-- :set -fobject-code
+
+-- Or even faster loading, just typecheck
+:set -fno-code

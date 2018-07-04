@@ -11,6 +11,6 @@ setlocal omnifunc=ghci#omnifunc
 
 autocmd TextChangedI <buffer> :pclose
 
-command! -buffer Ghcid terminal ghcid -c cabal new-repl
+command! -buffer Ghcid terminal ghcid --command='cabal new-repl'
 command! -buffer Ghci terminal cabal new-repl
 command! -buffer -nargs=0 GhciType call ghci#typeat()

@@ -38,11 +38,10 @@ main = do
              (ghci, _load) <- startGhci "cabal new-repl" Nothing printOutput
              serve sock ghci)
   where
-    printOutput _stream text = putStrLn text
+    printOutput _stream = putStrLn
 
 writeAddressFile :: FilePath -> N.ServiceName -> IO ()
-writeAddressFile path port = do
-    writeFile path $ printf "localhost:%s\n" port
+writeAddressFile path port = writeFile path $ printf "localhost:%s\n" port
 
 -- XXX: Try to parse the JSON, if it fails, fetch more
 recv :: N.Socket -> IO (Maybe ByteString)
@@ -69,7 +68,7 @@ serve sock ghci = do
                     case msg of
                         Array array -> (array V.! 0, array V.! 1)
                         _ -> error "Fuck"
-            let Just id' = (toBoundedInteger id_) :: Maybe Int
+            let Just id' = toBoundedInteger id_ :: Maybe Int
             case H.lookup "command" cmd of
                 Just (String "findstart") -> do
                     let String line = fromJust $ H.lookup "line" cmd
@@ -99,7 +98,7 @@ serve sock ghci = do
                         line' = fromJust $ toBoundedInteger line
                     type_ <- ghciTypeAt ghci (T.unpack file) line' col' (line' + 1) (col' + 1) under
                     case type_ of
-                        Just (type') -> do
+                        Just type' ->
                             reply sock id' $ A.Object [("type", A.String type'), ("expr", A.String under)]
                         Nothing -> error "Error: type inference failed"
                 _ -> error "Error: unknown received command"
