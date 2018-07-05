@@ -1,3 +1,4 @@
+import Prelude hiding (mod)
 import Debug.Trace
 
 import Control.Monad (forM)
@@ -12,6 +13,7 @@ import Text.Printf
 
 import GHC.SyntaxHighlighter
 import Language.Haskell.Ghcid
+import System.Environment (getArgs)
 
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -28,6 +30,11 @@ import qualified Network.Simple.TCP as N
 
 main :: IO ()
 main = do
+    args <- getArgs
+    let opts =
+            case args of
+                [] -> "cabal new-repl"
+                files -> printf "ghci %s" $ unwords files
     putStrLn "Running server..."
     writeAddressFile ".ghci_complete" "8000"
     N.serve
@@ -35,7 +42,7 @@ main = do
         "8000" -- XXX: make it random
         (\(sock, _addr) -> do
              putStrLn "Client connected"
-             (ghci, _load) <- startGhci "cabal new-repl" Nothing printOutput
+             (ghci, _load) <- startGhci opts Nothing printOutput
              serve sock ghci)
   where
     printOutput _stream = putStrLn
@@ -109,7 +116,7 @@ serve sock ghci = do
 -- TODO: tokenize line and find right expression
 ghciTypeAt :: Ghci -> FilePath -> Int -> Int -> Int -> Int -> Text -> IO (Maybe Text)
 ghciTypeAt ghci file line col line' col' expr
-    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = fmap joinLines <$> evalExpr ghci (printf ":type-at %s %d %d %d %d %s" file line col line' col' expr)
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = fmap joinLines <$> evalExpr ghci (printf ":type-at %s %d %d %d %d (%s)" file line col line' col' op)
     | otherwise = fmap joinLines <$> evalExpr ghci (printf ":type-at %s %d %d %d %d %s" file line col line' col' expr)
   where
     joinLines = T.unwords . map T.stripStart
