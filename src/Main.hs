@@ -1,12 +1,13 @@
 import Prelude hiding (mod)
 import Debug.Trace
 
-import Control.Monad (forM)
+import Control.Monad (forM, void)
 import Data.Aeson as A
 import Data.ByteString.Char8 (ByteString)
 import Data.Char
 import Data.Either
 import Data.Maybe
+import Data.List (find)
 import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
 import Text.Printf
@@ -24,7 +25,6 @@ import qualified Data.Vector as V
 import qualified Network.Simple.TCP as N
 
 -- TODO: send {"action": "reload"} on write?
--- reload code command
 --
 -- https://github.com/dramforever/vscode-ghc-simple
 
@@ -105,13 +105,23 @@ serve sock ghci = do
                         line' = fromJust $ toBoundedInteger line
                     type_ <- ghciTypeAt ghci (T.unpack file) line' col' (line' + 1) (col' + 1) under
                     case type_ of
-                        Just type' ->
-                            reply sock id' $ A.Object [("type", A.String type'), ("expr", A.String under)]
+                        Just type' -> reply sock id' $ A.Object [("type", A.String type'), ("expr", A.String under)]
                         Nothing -> error "Error: type inference failed"
+                Just (String "reload") -> do
+                    ghciLoad ghci Nothing
+                    reply sock id' A.Null
+                Just (String "load") -> do
+                    let String file = fromJust $ H.lookup "file" cmd
+                    ghciLoad ghci (Just file)
+                    reply sock id' A.Null
                 _ -> error "Error: unknown received command"
             serve sock ghci
   where
     fmtCandidate (Candidate c t i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
+
+ghciLoad :: Ghci -> Maybe Text -> IO ()
+ghciLoad ghci (Just path) = void $ evalExpr ghci $ printf ":load! %s" path
+ghciLoad ghci Nothing = void $ evalExpr ghci ":reload!"
 
 -- TODO: tokenize line and find right expression
 ghciTypeAt :: Ghci -> FilePath -> Int -> Int -> Int -> Int -> Text -> IO (Maybe Text)
@@ -206,9 +216,12 @@ data Completion = Module Text Loc
                 | Extension Text Loc
                 deriving Show
 
--- TODO: ModuleExport
 decideCompletion :: [(Token, Text, Loc)] -> Maybe Completion
 decideCompletion [] = Just $ Variable "" (Loc 0 1 0 0)
+decideCompletion tokens@((KeywordTok, "import", _):(KeywordTok, "qualified", _):(ConstructorTok, mod, _):_)
+    | Just compl <- completeModuleExport mod tokens = Just compl
+decideCompletion tokens@((KeywordTok, "import", _):(ConstructorTok, mod, _):_)
+    | Just compl <- completeModuleExport mod tokens = Just compl
 decideCompletion ((KeywordTok, "import", _):(ConstructorTok, mod, loc):(OperatorTok, ".", _):_) =
     Just $ Module (mod `T.append` ".") loc
 decideCompletion ((KeywordTok, "import", _):(ConstructorTok, mod, loc):_) = Just $ Module mod loc
@@ -220,10 +233,27 @@ decideCompletion tokens
     | [(ConstructorTok, var, loc), (OperatorTok, ".", _)] <- takeLast 2 tokens =
         Just $ Variable (var `T.append` ".") loc
     | [(ConstructorTok, var, loc)] <- takeLast 1 tokens = Just $ Variable var loc
+    | [(OperatorTok, op, loc)] <- takeLast 1 tokens = Just $ Variable op loc
     | [(VariableTok, var, loc)] <- takeLast 1 tokens = Just $ Variable var loc
     | otherwise = error "decideCompletion: missing completion case"
   where
     takeLast n = reverse . take n . reverse
+
+completeModuleExport :: Text -> [(Token, Text, Loc)] -> Maybe Completion
+completeModuleExport mod tokens
+    | Just _ <-
+         find
+             (\case
+                  (SymbolTok, "(", _) -> True
+                  _ -> False)
+             tokens =
+        case reverse tokens of
+            ((SymbolTok, "(", loc):_) -> Just $ ModuleExport mod "" loc
+            ((SymbolTok, ",", loc):_) -> Just $ ModuleExport mod "" loc
+            ((VariableTok, var, loc):_) -> Just $ ModuleExport mod var loc
+            ((OperatorTok, op, loc):_) -> Just $ ModuleExport mod op loc
+            _ -> error "completeModuleExport: impossible"
+    | otherwise = Nothing
 
 parseCompletion :: Text -> Maybe Completion
 parseCompletion line =

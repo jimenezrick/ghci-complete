@@ -1,8 +1,8 @@
 -- Needed for :type-at
 :set +c
 
--- For faster loading
+-- For faster loading, only exported symbols are visible
 -- :set -fobject-code
 
--- Or even faster loading, just typecheck
-:set -fno-code
+-- Or even faster loading, just typecheck but we lose type info
+-- :set -fno-code

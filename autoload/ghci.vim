@@ -92,3 +92,19 @@ function! ghci#typeat() abort
 	let l:resp = s:send_command(l:cmd)
 	echomsg printf("%s :: %s", l:resp['expr'], l:resp['type'])
 endfun
+
+function! ghci#load(...) abort
+	if a:0 == 0
+		let l:cmd = {
+		\    'command': 'reload',
+		\ }
+	else
+		let l:cmd = {
+		\    'command': 'load',
+		\    'file': a:1,
+		\ }
+	endif
+
+	" XXX: handle errors
+	let l:resp = s:send_command(l:cmd)
+endfun

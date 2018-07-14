@@ -13,4 +13,6 @@ autocmd TextChangedI <buffer> :pclose
 
 command! -buffer Ghcid terminal ghcid --command='cabal new-repl'
 command! -buffer Ghci terminal cabal new-repl
-command! -buffer -nargs=0 GhciType call ghci#typeat()
+command! -buffer -nargs=0 GhciTypeAt call ghci#typeat()
+command! -buffer -nargs=0 GhciReload call ghci#load()
+command! -buffer -nargs=0 GhciLoadModule call ghci#load(expand('%:p'))
