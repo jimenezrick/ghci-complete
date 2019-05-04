@@ -3,13 +3,13 @@ if exists('b:did_ftplugin_ghci_complete')
 endif
 let b:did_ftplugin_ghci_complete = 1
 
-let g:ghci_complete_batch_size = 10
+let g:ghci_complete_batch_size = 16
 let g:ghci_complete_timeout = 4000
 
 setlocal completeopt+=preview
 setlocal omnifunc=ghci#omnifunc
 
-autocmd TextChangedI <buffer> :pclose
+autocmd CompleteDone <buffer> :pclose
 
 command! -buffer Ghcid terminal ghcid --command='cabal new-repl'
 command! -buffer Ghci terminal cabal new-repl

@@ -12,10 +12,19 @@ function! s:send_command(command) abort
 	endif
 
 	if ch_status(b:ghci_chan) != 'open'
-		throw 'error_connect_ghci'
+		echohl WarningMsg | echomsg 'Error: failed to connect to GHCi server' | echohl None
+		throw 'error_ghci_connect'
 	endif
 
-	return ch_evalexpr(b:ghci_chan, a:command)
+	"echomsg printf('GHCi <= Command: %s', l:cmd)
+	let l:resp = ch_evalexpr(b:ghci_chan, a:command)
+	"echomsg printf('GHCi => Response: %s', l:resp)
+	if type(l:resp) == v:t_string && l:resp == ""
+		echohl ErrorMsg | echomsg "Error: timeout waiting for GHCi server reply" | echohl None
+		throw 'error_ghci_timeout'
+	endif
+
+	return l:resp
 endfunction
 
 function! ghci#omnifunc(findstart, base) abort
@@ -38,21 +47,10 @@ function! ghci#omnifunc(findstart, base) abort
 
 	while 1
 		try
-			"echomsg printf('GHCi <= Command: %s', l:cmd)
 			let l:resp = s:send_command(l:cmd)
-			"echomsg printf('GHCi => Response: %s', l:resp)
-		catch /error_connect_ghci/
-			echohl WarningMsg | echomsg 'Error: failed to connect to GHCi server' | echohl None
-			return -1
 		catch
-			echohl ErrorMsg | echomsg 'Error: failed to send command to GHCi server' | echohl None
 			return -1
 		endtry
-
-		if empty(l:resp)
-			echohl ErrorMsg | echomsg "Error: timeout GHCi server didn't reply" | echohl None
-			return -1
-		endif
 
 		if a:findstart
 			return l:resp['start']
@@ -88,9 +86,11 @@ function! ghci#typeat() abort
 	\    'under': expand('<cWORD>'),
 	\ }
 
-	" XXX: handle errors
-	let l:resp = s:send_command(l:cmd)
-	echomsg printf("%s :: %s", l:resp['expr'], l:resp['type'])
+	try
+		let l:resp = s:send_command(l:cmd)
+		echomsg printf("%s :: %s", l:resp['expr'], l:resp['type'])
+	catch
+	endtry
 endfun
 
 function! ghci#load(...) abort
@@ -105,6 +105,8 @@ function! ghci#load(...) abort
 		\ }
 	endif
 
-	" XXX: handle errors
-	let l:resp = s:send_command(l:cmd)
+	try
+		s:send_command(l:cmd)
+	catch
+	endtry
 endfun

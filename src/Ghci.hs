@@ -1,20 +1,31 @@
-import Prelude hiding (mod)
+module Ghci
+    ( Completion(..)
+    , Loc(..)
+    , parseCompletion
+    ) where
+
 import Debug.Trace
+import Prelude hiding (mod)
+
+import Control.Concurrent
 
 import Control.Monad (forM, void)
 import Data.Aeson as A
 import Data.ByteString.Char8 (ByteString)
 import Data.Char
 import Data.Either
-import Data.Maybe
 import Data.List (find)
+import Data.Maybe
 import Data.Scientific (toBoundedInteger)
 import Data.Text (Text)
+import System.Random (randomRIO)
 import Text.Printf
 
 import GHC.SyntaxHighlighter
 import Language.Haskell.Ghcid
 import System.Environment (getArgs)
+
+import Language.Haskell.Extension (KnownExtension)
 
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -27,19 +38,19 @@ import qualified Network.Simple.TCP as N
 -- TODO: send {"action": "reload"} on write?
 --
 -- https://github.com/dramforever/vscode-ghc-simple
-
-main :: IO ()
-main = do
+run :: IO ()
+run = do
     args <- getArgs
     let opts =
             case args of
                 [] -> "cabal new-repl"
                 files -> printf "ghci %s" $ unwords files
     putStrLn "Running server..."
-    writeAddressFile ".ghci_complete" "8000"
+    port <- randomRIO (1024, 4096)
+    writeAddressFile ".ghci_complete" port
     N.serve
         N.HostAny
-        "8000" -- XXX: make it random
+        (show port)
         (\(sock, _addr) -> do
              putStrLn "Client connected"
              (ghci, _load) <- startGhci opts Nothing printOutput
@@ -47,8 +58,8 @@ main = do
   where
     printOutput _stream = putStrLn
 
-writeAddressFile :: FilePath -> N.ServiceName -> IO ()
-writeAddressFile path port = writeFile path $ printf "localhost:%s\n" port
+writeAddressFile :: FilePath -> Int -> IO ()
+writeAddressFile path port = writeFile path $ printf "localhost:%d\n" port
 
 -- XXX: Try to parse the JSON, if it fails, fetch more
 recv :: N.Socket -> IO (Maybe ByteString)
@@ -105,9 +116,13 @@ serve sock ghci = do
                         line' = fromJust $ toBoundedInteger line
                     type_ <- ghciTypeAt ghci (T.unpack file) line' col' (line' + 1) (col' + 1) under
                     case type_ of
-                        Just type' -> reply sock id' $ A.Object [("type", A.String type'), ("expr", A.String under)]
+                        Just type' ->
+                            reply sock id' $
+                            A.Object [("type", A.String type'), ("expr", A.String under)]
                         Nothing -> error "Error: type inference failed"
-                Just (String "reload") -> do
+                Just (String "reload")
+                    --threadDelay 10000000
+                 -> do
                     ghciLoad ghci Nothing
                     reply sock id' A.Null
                 Just (String "load") -> do
@@ -117,7 +132,8 @@ serve sock ghci = do
                 _ -> error "Error: unknown received command"
             serve sock ghci
   where
-    fmtCandidate (Candidate c t i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
+    fmtCandidate (Candidate c t i) =
+        A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
 ghciLoad :: Ghci -> Maybe Text -> IO ()
 ghciLoad ghci (Just path) = void $ evalExpr ghci $ printf ":load! %s" path
@@ -126,14 +142,19 @@ ghciLoad ghci Nothing = void $ evalExpr ghci ":reload!"
 -- TODO: tokenize line and find right expression
 ghciTypeAt :: Ghci -> FilePath -> Int -> Int -> Int -> Int -> Text -> IO (Maybe Text)
 ghciTypeAt ghci file line col line' col' expr
-    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = fmap joinLines <$> evalExpr ghci (printf ":type-at %s %d %d %d %d (%s)" file line col line' col' op)
-    | otherwise = fmap joinLines <$> evalExpr ghci (printf ":type-at %s %d %d %d %d %s" file line col line' col' expr)
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr =
+        fmap joinLines <$>
+        evalExpr ghci (printf ":type-at %s %d %d %d %d (%s)" file line col line' col' op)
+    | otherwise =
+        fmap joinLines <$>
+        evalExpr ghci (printf ":type-at %s %d %d %d %d %s" file line col line' col' expr)
   where
     joinLines = T.unwords . map T.stripStart
 
 ghciType :: Ghci -> Text -> IO (Maybe Text)
 ghciType ghci expr
-    | Just [(OperatorTok, op)] <- tokenizeHaskell expr = fmap joinLines <$> evalExpr ghci (printf ":type (%s)" op)
+    | Just [(OperatorTok, op)] <- tokenizeHaskell expr =
+        fmap joinLines <$> evalExpr ghci (printf ":type (%s)" op)
     | otherwise = fmap joinLines <$> evalExpr ghci (printf ":type %s" expr)
   where
     joinLines = T.unwords . map T.stripStart
@@ -178,9 +199,12 @@ performCompletion ghci range compl = do
     case completion of
         Just (candidates, more) -> do
             candidates' <-
-                forM candidates $ \c -> do
+                forM candidates $ \c
                     -- This can fail when using :info on a type
-                    t <- maybe "" (T.dropWhile isSpace . T.dropWhile (not . isSpace)) <$> ghciType ghci c
+                 -> do
+                    t <-
+                        maybe "" (T.dropWhile isSpace . T.dropWhile (not . isSpace)) <$>
+                        ghciType ghci c
                     i <-
                         fmap T.unlines <$>
                         case compl of
@@ -210,14 +234,22 @@ findStart line col =
   where
     startCol (Loc _ c _ _) = c - 1 -- The text starts after the index X we return, so [X+1..]
 
-data Completion = Module Text Loc
-                | ModuleExport Text Text Loc
-                | Variable Text Loc
-                | Extension Text Loc
-                deriving Show
+data Completion
+    = Module Text
+             Loc
+    | ModuleExport Text
+                   Text
+                   Loc
+    | Variable Text
+               Loc
+    | Extension Text
+                Loc
+    deriving (Eq, Show)
 
 decideCompletion :: [(Token, Text, Loc)] -> Maybe Completion
 decideCompletion [] = Just $ Variable "" (Loc 0 1 0 0)
+decideCompletion [(KeywordTok, "import", loc)] = Just $ Module "" loc
+decideCompletion [(KeywordTok, "import", _), (KeywordTok, "qualified", loc)] = Just $ Module "" loc
 decideCompletion tokens@((KeywordTok, "import", _):(KeywordTok, "qualified", _):(ConstructorTok, mod, _):_)
     | Just compl <- completeModuleExport mod tokens = Just compl
 decideCompletion tokens@((KeywordTok, "import", _):(ConstructorTok, mod, _):_)
@@ -235,7 +267,7 @@ decideCompletion tokens
     | [(ConstructorTok, var, loc)] <- takeLast 1 tokens = Just $ Variable var loc
     | [(OperatorTok, op, loc)] <- takeLast 1 tokens = Just $ Variable op loc
     | [(VariableTok, var, loc)] <- takeLast 1 tokens = Just $ Variable var loc
-    | otherwise = error "decideCompletion: missing completion case"
+    | otherwise = error $ printf "decideCompletion: missing case: %s" $ show tokens
   where
     takeLast n = reverse . take n . reverse
 
@@ -252,7 +284,7 @@ completeModuleExport mod tokens
             ((SymbolTok, ",", loc):_) -> Just $ ModuleExport mod "" loc
             ((VariableTok, var, loc):_) -> Just $ ModuleExport mod var loc
             ((OperatorTok, op, loc):_) -> Just $ ModuleExport mod op loc
-            _ -> error "completeModuleExport: impossible"
+            _ -> error $ printf "completeModuleExport: missing case: %s %s" mod $ show tokens
     | otherwise = Nothing
 
 parseCompletion :: Text -> Maybe Completion
@@ -279,107 +311,5 @@ tokenizeWords line = map toToken . wordsCols $ zip (T.unpack line) [1 ..]
             s' -> w : wordsCols s''
                 where (w, s'') = break (isSpace . fst) s'
 
--- Listed in: https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/glasgow_exts.html
 ghcExtensions :: [Text]
-ghcExtensions =
-    [ "AllowAmbiguousTypes"
-    , "ApplicativeDo"
-    , "Arrows"
-    , "BangPatterns"
-    , "BinaryLiterals"
-    , "CApiFFI"
-    , "ConstrainedClassMethods"
-    , "ConstraintKinds"
-    , "CPP"
-    , "DataKinds"
-    , "DatatypeContexts"
-    , "DefaultSignatures"
-    , "DeriveAnyClass"
-    , "DeriveDataTypeable"
-    , "DeriveFoldable"
-    , "DeriveFunctor"
-    , "DeriveGeneric"
-    , "DeriveLift"
-    , "DeriveTraversable"
-    , "DerivingStrategies"
-    , "DisambiguateRecordFields"
-    , "DuplicateRecordFields"
-    , "EmptyCase"
-    , "EmptyDataDecls"
-    , "ExistentialQuantification"
-    , "ExplicitForAll"
-    , "ExplicitNamespaces"
-    , "ExtendedDefaultRules"
-    , "FlexibleContexts"
-    , "FlexibleInstances"
-    , "ForeignFunctionInterface"
-    , "FunctionalDependencies"
-    , "GADTs"
-    , "GADTSyntax"
-    , "GeneralisedNewtypeDeriving"
-    , "ImplicitParams"
-    , "ImplicitPrelude"
-    , "ImpredicativeTypes"
-    , "IncoherentInstances"
-    , "InstanceSigs"
-    , "InterruptibleFFI"
-    , "KindSignatures"
-    , "LambdaCase"
-    , "LiberalTypeSynonyms"
-    , "MagicHash"
-    , "MonadComprehensions"
-    , "MonadFailDesugaring"
-    , "MonoLocalBinds"
-    , "MonomorphismRestriction"
-    , "MultiParamTypeClasses"
-    , "MultiWayIf"
-    , "NamedFieldPuns"
-    , "NamedWildCards"
-    , "NegativeLiterals"
-    , "NPlusKPatterns"
-    , "NullaryTypeClasses"
-    , "NumDecimals"
-    , "OverlappingInstances"
-    , "OverloadedLabels"
-    , "OverloadedLists"
-    , "OverloadedStrings"
-    , "PackageImports"
-    , "ParallelListComp"
-    , "PartialTypeSignatures"
-    , "PatternGuards"
-    , "PatternSynonyms"
-    , "PolyKinds"
-    , "PostfixOperators"
-    , "QuasiQuotes"
-    , "Rank2Types"
-    , "RankNTypes"
-    , "RebindableSyntax"
-    , "RecordWildCards"
-    , "RecursiveDo"
-    , "RoleAnnotations"
-    , "Safe"
-    , "ScopedTypeVariables"
-    , "StandaloneDeriving"
-    , "StaticPointers"
-    , "Strict"
-    , "StrictData"
-    , "TemplateHaskell"
-    , "TemplateHaskellQuotes"
-    , "TraditionalRecordSyntax"
-    , "TransformListComp"
-    , "Trustworthy"
-    , "TupleSections"
-    , "TypeApplications"
-    , "TypeFamilies"
-    , "TypeFamilyDependencies"
-    , "TypeInType"
-    , "TypeOperators"
-    , "TypeSynonymInstances"
-    , "UnboxedSums"
-    , "UnboxedTuples"
-    , "UndecidableInstances"
-    , "UndecidableSuperClasses"
-    , "UnicodeSyntax"
-    , "Unsafe"
-    , "ViewPatterns"
-    ]
+ghcExtensions = T.pack . show <$> ([minBound .. maxBound] :: [KnownExtension])
