@@ -2,6 +2,7 @@ module Ghci
     ( Completion(..)
     , Loc(..)
     , parseCompletion
+    , run
     ) where
 
 import Debug.Trace
