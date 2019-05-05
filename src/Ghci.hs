@@ -166,7 +166,7 @@ ghciInfo ghci expr
     | otherwise = evalExpr ghci $ printf ":info %s" expr
 
 ghciBrowse :: Ghci -> Text -> IO (Maybe [Text])
-ghciBrowse ghci mod = evalExpr ghci $ printf ":browse %s" mod
+ghciBrowse ghci mod = evalExpr ghci $ printf ":browse! %s" mod
 
 ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Text], Bool))
 ghciComplete ghci range compl = do
