@@ -1,9 +1,4 @@
-module Ghci
-    ( Completion(..)
-    , Loc(..)
-    , parseCompletion
-    , run
-    ) where
+module Ghci where
 
 import Debug.Trace
 import Prelude hiding (mod)
@@ -23,10 +18,9 @@ import System.Random (randomRIO)
 import Text.Printf
 
 import GHC.SyntaxHighlighter
+import Language.Haskell.Extension (KnownExtension)
 import Language.Haskell.Ghcid
 import System.Environment (getArgs)
-
-import Language.Haskell.Extension (KnownExtension)
 
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -189,7 +183,7 @@ data Candidate = Candidate
     { candidate :: Text
     , type_ :: Text
     , info :: Text
-    }
+    } deriving (Show)
 
 performCompletion :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Candidate], Bool))
 performCompletion _ _ (Extension ext _) =
