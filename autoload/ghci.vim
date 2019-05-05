@@ -75,7 +75,7 @@ function! ghci#omnifunc(findstart, base) abort
 			let l:cmd['complete_last'] += g:ghci_complete_batch_size
 		endif
 	endwhile
-endfun
+endfunction
 
 function! ghci#typeat() abort
 	let l:cmd = {
@@ -91,7 +91,7 @@ function! ghci#typeat() abort
 		echomsg printf("%s :: %s", l:resp['expr'], l:resp['type'])
 	catch
 	endtry
-endfun
+endfunction
 
 function! ghci#load(...) abort
 	if a:0 == 0
@@ -109,4 +109,4 @@ function! ghci#load(...) abort
 		s:send_command(l:cmd)
 	catch
 	endtry
-endfun
+endfunction
