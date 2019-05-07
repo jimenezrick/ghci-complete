@@ -1,13 +1,16 @@
-# vim-ghci-complete
+# ghci-complete for Vim
 
-I absolutely hate vimscript. This is HDD (hate driven development),
-becase Haskell is always better than anything else.
+Haskell code completion daemon based on ghcid with Vim support included.
 
 ## Motivation
 
-ghci/d
-unix composition
-simplicity
+I absolutely hate Vimscript. This is HDD (hate driven development),
+becase Haskell is always better than anything else.
+
+Also because:
+- GHCi (and ghcid) are awesome
+- Because UNIX and functional programming is about composing
+- Simple is always better
 
 ## Useful info about:
 

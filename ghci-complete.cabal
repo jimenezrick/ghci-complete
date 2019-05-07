@@ -1,7 +1,7 @@
-name:               vim-ghci-complete
+name:               ghci-complete
 version:            0.1.0.0
 synopsis:           Fast Vim omni-completion based on ghcid
-homepage:           https://github.com/jimenezrick/vim-ghci-complete
+homepage:           https://github.com/jimenezrick/ghci-complete
 license-file:       LICENSE
 license:            MIT
 author:             Ricardo Catalinas Jiménez <r@untroubled.be>
@@ -38,7 +38,7 @@ library
       Cache
     , Complete
 
-executable vim-ghci-complete
+executable ghci-complete
   default-language: Haskell2010
   ghc-options:      -Wall
   main-is:          Main.hs
@@ -48,10 +48,10 @@ executable vim-ghci-complete
     , MultiParamTypeClasses
   build-depends:
       base
-    , vim-ghci-complete
+    , ghci-complete
     , rio
 
-test-suite test
+test-suite test-ghci-complete
   default-language: Haskell2010
   ghc-options:      -Wall
   type:             exitcode-stdio-1.0
@@ -59,7 +59,7 @@ test-suite test
   main-is:          Main.hs
   build-depends:
       base
-    , vim-ghci-complete
+    , ghci-complete
     , ghc-syntax-highlighter
     , ghcid
     , tasty
