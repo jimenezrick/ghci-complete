@@ -5,7 +5,7 @@ import Language.Haskell.Ghcid
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Ghci
+import Complete
 
 main :: IO ()
 main = defaultMain $ testGroup "All tests" [importTests, ghciLoadTest, completionTests]

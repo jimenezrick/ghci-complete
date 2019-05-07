@@ -1,4 +1,4 @@
-module Ghci where
+module Complete where
 
 import Debug.Trace
 import Prelude hiding (mod)
