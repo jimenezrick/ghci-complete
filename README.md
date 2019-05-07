@@ -12,7 +12,7 @@ Also because:
 - Because UNIX and functional programming is about composing
 - Simple is always better
 
-## Useful info about:
+## Useful info about GHCi
 
 - ghci: http://dev.stephendiehl.com/editor_talk.html
 - ghcid: http://www.parsonsmatt.org/2018/05/19/ghcid_for_the_win.html
