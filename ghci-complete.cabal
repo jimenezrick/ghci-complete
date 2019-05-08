@@ -16,9 +16,13 @@ library
   ghc-options:      -Wall
   hs-source-dirs:   src
   default-extensions:
-      OverloadedStrings
+      NoImplicitPrelude
+    , OverloadedStrings
     , OverloadedLists
     , LambdaCase
+    , FlexibleInstances
+    , MultiParamTypeClasses
+    , ScopedTypeVariables
   build-depends:
       base >=4.7 && <5
     , containers
@@ -35,21 +39,18 @@ library
     , ghcid
     , rio
   exposed-modules:
-      Cache
+      App
+    , Cache
     , Complete
+    , Parse
 
 executable ghci-complete
   default-language: Haskell2010
   ghc-options:      -Wall
   main-is:          Main.hs
-  default-extensions:
-      OverloadedStrings
-    , FlexibleInstances
-    , MultiParamTypeClasses
   build-depends:
       base
     , ghci-complete
-    , rio
 
 test-suite test-ghci-complete
   default-language: Haskell2010
@@ -57,6 +58,8 @@ test-suite test-ghci-complete
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   main-is:          Main.hs
+  default-extensions:
+      OverloadedStrings
   build-depends:
       base
     , ghci-complete

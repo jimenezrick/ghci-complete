@@ -6,6 +6,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Complete
+import Parse
 
 main :: IO ()
 main = defaultMain $ testGroup "All tests" [importTests, ghciLoadTest, completionTests]
@@ -13,7 +14,7 @@ main = defaultMain $ testGroup "All tests" [importTests, ghciLoadTest, completio
 ghciLoadTest :: TestTree
 ghciLoadTest =
     withResource
-        (fst <$> startGhci "ghci Main.hs M.hs" (Just "test/stub") (\_ _ -> return ()))
+        (fst <$> startGhci "ghci Main.hs ModA.hs" (Just "test/stub") (\_ _ -> return ()))
         stopGhci
         (\getGhci ->
              testGroup
@@ -21,7 +22,7 @@ ghciLoadTest =
                  [ testCase "Load code" $ do
                        ghci <- getGhci
                        mods <- showModules ghci
-                       sort mods @?= sort [("Main", "Main.hs"), ("M", "M.hs")]
+                       sort mods @?= sort [("Main", "Main.hs"), ("ModA", "ModA.hs")]
                  , testCase "Complete code" $ do
                        ghci <- getGhci
                        compl1 <- performCompletion ghci Nothing (Variable "foo" undefined)
@@ -30,9 +31,9 @@ ghciLoadTest =
                                 True
                             _ -> False) @?
                            ("Unexpected: " ++ show compl1)
-                       compl2 <- performCompletion ghci Nothing (Variable "M.ba" undefined)
+                       compl2 <- performCompletion ghci Nothing (Variable "ModA.ba" undefined)
                        (case compl2 of
-                            Just ([Candidate {candidate = "M.bar", type_ = ":: Int"}], False) ->
+                            Just ([Candidate {candidate = "ModA.bar", type_ = ":: Int"}], False) ->
                                 True
                             _ -> False) @?
                            ("Unexpected: " ++ show compl2)

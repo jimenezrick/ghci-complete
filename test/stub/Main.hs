@@ -1,4 +1,4 @@
-import M
+import ModA
 
 main :: IO ()
 main = return ()

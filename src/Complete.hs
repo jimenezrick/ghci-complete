@@ -1,19 +1,23 @@
 module Complete where
 
-import Debug.Trace
-import Prelude hiding (mod)
+import RIO
+import RIO.ByteString (ByteString)
+import RIO.Text (Text)
 
-import Control.Concurrent
+import qualified RIO.ByteString as B
+import qualified RIO.ByteString.Lazy as BL
+import qualified RIO.Text as T
+import qualified RIO.Text.Partial as T
+
+-- FIXME: use RIO and logging
+import Prelude (head, putStr, putStrLn, tail, zip3)
 
 import Control.Monad (forM, void)
 import Data.Aeson as A
-import Data.ByteString.Char8 (ByteString)
 import Data.Char
-import Data.Either
 import Data.List (find)
 import Data.Maybe
 import Data.Scientific (toBoundedInteger)
-import Data.Text (Text)
 import System.Random (randomRIO)
 import Text.Printf
 
@@ -22,39 +26,37 @@ import Language.Haskell.Extension (KnownExtension)
 import Language.Haskell.Ghcid
 import System.Environment (getArgs)
 
-import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.HashMap.Strict as H
-import qualified Data.Text as T
-import qualified Data.Text.Read as T
 import qualified Data.Vector as V
 import qualified Network.Simple.TCP as N
+
+import App
+import Parse
 
 -- TODO: send {"action": "reload"} on write?
 --
 -- https://github.com/dramforever/vscode-ghc-simple
-run :: IO ()
-run = do
-    args <- getArgs
+runServer :: RIO App ()
+runServer = do
+    args <- liftIO getArgs
     let opts =
             case args of
                 [] -> "cabal new-repl"
                 files -> printf "ghci %s" $ unwords files
-    putStrLn "Running server..."
-    port <- randomRIO (1024, 4096)
-    writeAddressFile ".ghci_complete" port
+    port :: Int <- liftIO $ randomRIO (1024, 4096)
+    let addr = printf "localhost:%d" port
+    writeAddressFile ".ghci_complete" addr
+    logInfo . fromString $ printf "Starting ghci-complete listening on: %s" addr
     N.serve
         N.HostAny
         (show port)
         (\(sock, _addr) -> do
              putStrLn "Client connected"
-             (ghci, _load) <- startGhci opts Nothing printOutput
+             (ghci, _load) <- startGhci opts Nothing printGhciOutput
              serve sock ghci)
   where
-    printOutput _stream = putStrLn
-
-writeAddressFile :: FilePath -> Int -> IO ()
-writeAddressFile path port = writeFile path $ printf "localhost:%d\n" port
+    printGhciOutput _stream = putStrLn
+    writeAddressFile path addr = liftIO . B.writeFile path . encodeUtf8 . T.pack $ addr ++ "\n"
 
 -- XXX: Try to parse the JSON, if it fails, fetch more
 recv :: N.Socket -> IO (Maybe ByteString)
@@ -72,7 +74,7 @@ serve sock ghci = do
         Nothing -> putStrLn "Connection closed"
         Just line' -> do
             putStr "Command: "
-            B.putStrLn line'
+            B.putStr $ line' `B.append` "\n"
             let msg =
                     case eitherDecodeStrict line' of
                         Left err -> error err
@@ -175,15 +177,10 @@ ghciComplete ghci range compl = do
     prefix (Variable var _) = T.unpack var
     cmd Nothing = printf ":complete repl \"%s\"" $ prefix compl
     cmd (Just (first, last)) = printf ":complete repl %d-%d \"%s\"" first last $ prefix compl
-    parseDigit = fst . fromRight (-1, "") . T.decimal
+    parseDigit :: Text -> Int
+    parseDigit = fromJust . readMaybe . T.unpack
     more total (Just (first, last)) = last < total
     more _ Nothing = False
-
-data Candidate = Candidate
-    { candidate :: Text
-    , type_ :: Text
-    , info :: Text
-    } deriving (Show)
 
 performCompletion :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Candidate], Bool))
 performCompletion _ _ (Extension ext _) =
@@ -228,18 +225,6 @@ findStart line col =
             Just ext@(Extension _ loc) -> (ext, startCol loc)
   where
     startCol (Loc _ c _ _) = c - 1 -- The text starts after the index X we return, so [X+1..]
-
-data Completion
-    = Module Text
-             Loc
-    | ModuleExport Text
-                   Text
-                   Loc
-    | Variable Text
-               Loc
-    | Extension Text
-                Loc
-    deriving (Eq, Show)
 
 decideCompletion :: [(Token, Text, Loc)] -> Maybe Completion
 decideCompletion [] = Just $ Variable "" (Loc 0 1 0 0)
