@@ -43,6 +43,7 @@ library
     , Cache
     , Complete
     , Parse
+    , Server
 
 executable ghci-complete
   default-language: Haskell2010

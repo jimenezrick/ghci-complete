@@ -1,5 +1,5 @@
 import App
-import Complete
+import Server
 
 main :: IO ()
 main = runApp runServer
