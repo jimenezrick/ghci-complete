@@ -34,9 +34,11 @@ library
     , scientific
     , vector
     , unordered-containers
+    , network
     , network-simple
     , ghc-syntax-highlighter
     , ghcid
+    , unliftio
     , rio
   exposed-modules:
       App
