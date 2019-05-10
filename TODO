@@ -5,4 +5,8 @@
 
 - build worker thread that does the GHCi work, clean interface with Vim
   to be more agnostic
-- browse all at once, fetch info and cache, no batching from Vim
+- browse all at once, fetch info and cache, no batching from Vim. Or,
+  single request and the response can have more=true:
+    - It means more responses are coming
+    - ghci is busy building partial responses and caching
+    - response is adpative based in maxTime per partial response

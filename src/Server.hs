@@ -119,7 +119,7 @@ serve sock ghci = do
                     liftIO $ ghciLoad ghci (Just file)
                     reply sock id' A.Null
                 _ -> error "Error: unknown received command"
-    serve sock ghci
+            serve sock ghci
   where
     fmtCandidate (Candidate c t i) =
         A.Object [("word", String c), ("menu", String t), ("info", String i)]
