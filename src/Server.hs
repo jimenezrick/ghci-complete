@@ -1,7 +1,6 @@
 module Server where
 
 import RIO
-import RIO.ByteString (ByteString)
 import RIO.Directory (removeFile)
 import RIO.Partial
 
@@ -9,14 +8,14 @@ import qualified RIO.ByteString as B
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Text as T
 
-import Data.Aeson as A
+import Data.Aeson (Value(..))
 import Data.Scientific (toBoundedInteger)
 import Language.Haskell.Ghcid
 import System.Environment (getArgs)
 import System.Random (randomRIO)
 import Text.Printf
-import UnliftIO.Exception (onException)
 
+import qualified Data.Aeson as A
 import qualified Data.HashMap.Strict as H
 import qualified Data.Vector as V
 import qualified Network.Simple.TCP as N
@@ -25,6 +24,12 @@ import qualified Network.Socket as N (getPeerName)
 import App
 import Complete
 import Parse
+
+data ServerException =
+    AbortServer
+    deriving (Show)
+
+instance Exception ServerException
 
 -- TODO: send {"action": "reload"} on write?
 --
@@ -51,7 +56,7 @@ runServer = do
                       (ghci, _load) <-
                           startGhci opts Nothing $ \_stream msg ->
                               runInIO . logDebug $ fromString ("GHCi: " ++ msg)
-                      runInIO $ serve sock ghci)) `onException`
+                      runInIO $ serve sock ghci `catch` \(_ :: ServerException) -> return ())) `onException`
         removeFile ".ghci_complete"
   where
     writeAddressFile path addr = B.writeFile path . encodeUtf8 . T.pack $ addr ++ "\n"
@@ -63,15 +68,8 @@ serve sock ghci = do
         Nothing -> do
             cliAddr <- liftIO $ N.getPeerName sock
             logDebug . fromString . printf "Client disconnected %s" $ show cliAddr
-        Just line'
-            --putStr "Command: "
-            --B.putStr $ line' `B.append` "\n"
-         -> do
-            let msg =
-                    case eitherDecodeStrict line' of
-                        Left err -> error err
-                        Right msg -> msg
-                (Number id_, Object cmd) =
+        Just msg -> do
+            let (Number id_, Object cmd) =
                     case msg of
                         Array array -> (array V.! 0, array V.! 1)
                         _ -> error "Fuck"
@@ -126,12 +124,23 @@ serve sock ghci = do
     fmtCandidate (Candidate c t i) =
         A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
--- XXX: Try to parse the JSON, if it fails, fetch more
-recv :: (MonadIO m, MonadReader env m, HasLogFunc env) => N.Socket -> m (Maybe ByteString)
-recv sock = N.recv sock (1024 * 1024)
+recv :: (MonadIO m, MonadReader env m, HasLogFunc env) => N.Socket -> m (Maybe Value)
+recv sock = do
+    buf <- N.recv sock (1024 * 1024)
+    case buf of
+        Nothing -> return Nothing
+        Just buf' -> do
+            cliAddr <- liftIO $ N.getPeerName sock
+            case A.eitherDecodeStrict' buf' of
+                Left err -> do
+                    logError . fromString $ printf "Invalid request %s: %s" (show cliAddr) err
+                    throwIO AbortServer
+                Right req -> do
+                    logDebug . fromString $ printf "Request %s: %s" (show cliAddr) (show req)
+                    return req
 
 reply :: (MonadIO m, MonadReader env m, HasLogFunc env) => N.Socket -> Int -> Value -> m ()
 reply sock id' resp = do
     cliAddr <- liftIO $ N.getPeerName sock
     logDebug . fromString $ printf "Response %s: %s" (show cliAddr) (show resp)
-    N.send sock . BL.toStrict . encode . Array $ V.fromList [Number $ fromIntegral id', resp]
+    N.send sock . BL.toStrict . A.encode . Array $ V.fromList [Number $ fromIntegral id', resp]

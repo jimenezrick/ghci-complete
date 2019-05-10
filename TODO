@@ -3,7 +3,6 @@
 - Can't get to generate the haddock info in the .hi files to use :doc
   inside ghci.
 
-- RIO, logging, caching, parallel info gathering
 - build worker thread that does the GHCi work, clean interface with Vim
   to be more agnostic
-- browse all at once, fetch info and cache
+- browse all at once, fetch info and cache, no batching from Vim
