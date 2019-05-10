@@ -27,7 +27,7 @@ runApp m =
         verbose <- isJust <$> lookupEnv "GHCI_COMPLETE_VERBOSE"
         lo <- logOptionsHandle stderr verbose
         pc <- mkDefaultProcessContext
-        ic <- newSomeRef empty
+        ic <- newSomeRef emptyCache
         withLogFunc lo $ \lf ->
             let app = App {appLogFunc = lf, appProcessContext = pc, appInfoCache = ic}
              in runRIO app m
