@@ -7,10 +7,19 @@ import System.Environment (lookupEnv)
 import Cache
 
 data App = App
-    { appLogFunc :: !LogFunc
+    { appLogOpts :: !LogOptions
+    , appLogFunc :: !LogFunc
     , appProcessContext :: !ProcessContext
     , appInfoCache :: !(SomeRef InfoCache)
     }
+
+class HasLogFunc env =>
+      HasLogOpts env
+    where
+    logOptsL :: Lens' env LogOptions
+
+instance HasLogOpts App where
+    logOptsL = lens appLogOpts (\x y -> x {appLogOpts = y})
 
 instance HasLogFunc App where
     logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
@@ -29,5 +38,11 @@ runApp m =
         pc <- mkDefaultProcessContext
         ic <- newSomeRef emptyCache
         withLogFunc lo $ \lf ->
-            let app = App {appLogFunc = lf, appProcessContext = pc, appInfoCache = ic}
+            let app =
+                    App
+                        { appLogOpts = lo
+                        , appLogFunc = lf
+                        , appProcessContext = pc
+                        , appInfoCache = ic
+                        }
              in runRIO app m
