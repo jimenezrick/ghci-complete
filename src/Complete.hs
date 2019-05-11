@@ -18,9 +18,9 @@ import GHC.SyntaxHighlighter
 import Language.Haskell.Extension (KnownExtension)
 import Language.Haskell.Ghcid
 
+import App
+import App.State
 import Parse
-
-type Range = (Int, Int)
 
 ghciLoad :: Ghci -> Maybe Text -> IO ()
 ghciLoad ghci (Just path) = void $ evalExpr ghci $ printf ":load! %s" path
@@ -72,15 +72,16 @@ ghciComplete ghci range compl = do
     more total (Just (first, last)) = last < total
     more _ Nothing = False
 
-performCompletion :: Ghci -> Maybe Range -> Completion -> IO (Maybe ([Candidate], Bool))
+performCompletion :: MonadIO m => Ghci -> Maybe Range -> Completion -> m (Maybe ([Candidate], Bool))
 performCompletion _ _ (Extension ext _) =
     let extensions = filter (T.isPrefixOf ext) ghcExtensions
      in return $ Just (map (\e -> Candidate e "" "") extensions, False)
 performCompletion ghci range compl = do
-    completion <- ghciComplete ghci range compl
+    completion <- liftIO $ ghciComplete ghci range compl
     case completion of
         Just (candidates, more) -> do
             candidates' <-
+                liftIO $
                 forM candidates $ \c
                     -- This can fail when using :info on a type
                  -> do

@@ -6,6 +6,7 @@ import Language.Haskell.Ghcid
 
 import App.Class
 import App.State
+import Complete
 import Parse
 
 startWorker ::
@@ -24,19 +25,25 @@ startWorker cmd reqChan = do
 
 --
 -- TODO: Need to send multiple responses sometimes
+--       Also do the cachign
 --
 workerLoop :: MonadIO m => Ghci -> MVar Request -> m ()
 workerLoop ghci reqChan = do
     req <- takeMVar reqChan
-    resp <- handleCompletion $ completion req
-    putMVar (response req) resp
+    candidates <- performCompletion ghci (req ^. range) (req ^. completion)
+    case candidates of
+        Nothing -> putMVar (req ^. respChan) Nothing
+        Just (matches, more) ->
+            putMVar (req ^. respChan) $ Just Response {_matches = matches, _more = more}
     workerLoop ghci reqChan
 
-sendRequest :: MonadIO m => Completion -> m (MVar (Maybe Response))
-sendRequest = undefined
-
-recvResponse :: MonadIO m => MVar (Maybe Response) -> m (Maybe Response)
-recvResponse = undefined
-
-handleCompletion :: MonadIO m => Completion -> m (Maybe Response)
-handleCompletion = undefined
+-- TODO: return list with all the completion
+performAsyncCompletion ::
+       MonadIO m => MVar Request -> Maybe Range -> Completion -> m (Maybe ([Candidate], Bool))
+performAsyncCompletion reqChan range compl = do
+    respChan <- newEmptyMVar
+    putMVar reqChan Request {_range = range, _completion = compl, _respChan = respChan}
+    resp <- takeMVar respChan
+    case resp of
+        Nothing -> return Nothing
+        Just (Response matches more) -> return $ Just (matches, more)

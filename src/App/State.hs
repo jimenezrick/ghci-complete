@@ -14,12 +14,19 @@ data AppState = AppState
 
 makeLenses ''AppState
 
-data Request = Request
-    { completion :: Completion
-    , response :: MVar (Maybe Response)
+data Response = Response
+    { _matches :: [Candidate]
+    , _more :: Bool
     }
 
-data Response = Response
-    { match :: Candidate
-    , more :: Bool
+makeLenses ''Response
+
+type Range = (Int, Int)
+
+data Request = Request
+    { _range :: Maybe Range
+    , _completion :: Completion
+    , _respChan :: MVar (Maybe Response)
     }
+
+makeLenses ''Request

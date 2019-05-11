@@ -90,7 +90,9 @@ serve sock ghci = do
                         (candidate, _) = findStart line (fromJust $ toBoundedInteger col)
                     let first' = fromJust $ toBoundedInteger first
                         last' = fromJust $ toBoundedInteger last
-                    completion <- liftIO $ performCompletion ghci (Just (first', last')) candidate
+                    reqChan <- asks appReqChan
+                    completion <-
+                        liftIO $ performAsyncCompletion reqChan (Just (first', last')) candidate
                     case completion of
                         Just (results, more) -> do
                             let results' = Array . V.fromList $ map fmtCandidate results
