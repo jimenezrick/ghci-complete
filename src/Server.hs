@@ -87,15 +87,15 @@ serve sock ghci = do
                         String line = fromJust $ H.lookup "line" cmd
                         Number first = fromJust $ H.lookup "complete_first" cmd
                         Number last = fromJust $ H.lookup "complete_last" cmd
-                        (candidate, _) = findStart line (fromJust $ toBoundedInteger col)
+                        (matches, _) = findStart line (fromJust $ toBoundedInteger col)
                     let first' = fromJust $ toBoundedInteger first
                         last' = fromJust $ toBoundedInteger last
                     reqChan <- asks appReqChan
                     completion <-
-                        liftIO $ performAsyncCompletion reqChan (Just (first', last')) candidate
+                        liftIO $ performAsyncCompletion reqChan (Just (first', last')) matches
                     case completion of
                         Just (results, more) -> do
-                            let results' = Array . V.fromList $ map fmtCandidate results
+                            let results' = Array . V.fromList $ map fmtMatch results
                             reply sock id' $ A.Object [("results", results'), ("more", A.Bool more)]
                         Nothing -> error "Error: completion failed"
                 Just (String "typeat") -> do
@@ -125,8 +125,7 @@ serve sock ghci = do
                 _ -> error "Error: unknown received command"
             serve sock ghci
   where
-    fmtCandidate (Candidate c t i) =
-        A.Object [("word", String c), ("menu", String t), ("info", String i)]
+    fmtMatch (Match c t i) = A.Object [("word", String c), ("menu", String t), ("info", String i)]
 
 recv :: (MonadIO m, MonadReader env m, HasLogFunc env) => N.Socket -> m (Maybe Value)
 recv sock = do

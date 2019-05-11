@@ -56,9 +56,9 @@ ghciBrowse ghci mod = evalExpr ghci $ printf ":browse! %s" mod
 
 ghciComplete :: Ghci -> Maybe Range -> Completion -> IO (Maybe ([Text], Bool))
 ghciComplete ghci range compl = do
-    candidates <- evalExpr ghci $ cmd range
+    matches <- evalExpr ghci $ cmd range
     return $ do
-        cs <- candidates
+        cs <- matches
         let [_num, total] = map parseDigit $ take 2 $ T.words $ head cs
         return (map (T.init . T.tail) $ tail cs, more total range)
   where
@@ -72,17 +72,17 @@ ghciComplete ghci range compl = do
     more total (Just (first, last)) = last < total
     more _ Nothing = False
 
-performCompletion :: MonadIO m => Ghci -> Maybe Range -> Completion -> m (Maybe ([Candidate], Bool))
+performCompletion :: MonadIO m => Ghci -> Maybe Range -> Completion -> m (Maybe ([Match], Bool))
 performCompletion _ _ (Extension ext _) =
     let extensions = filter (T.isPrefixOf ext) ghcExtensions
-     in return $ Just (map (\e -> Candidate e "" "") extensions, False)
+     in return $ Just (map (\e -> Match e "" "") extensions, False)
 performCompletion ghci range compl = do
     completion <- liftIO $ ghciComplete ghci range compl
     case completion of
-        Just (candidates, more) -> do
-            candidates' <-
+        Just (matches, more) -> do
+            matches' <-
                 liftIO $
-                forM candidates $ \c
+                forM matches $ \c
                     -- This can fail when using :info on a type
                  -> do
                     t <-
@@ -95,8 +95,8 @@ performCompletion ghci range compl = do
                             (ModuleExport _ _ _) -> ghciInfo ghci c -- XXX: build prefix?
                             (Variable _ _) -> ghciInfo ghci c
                             (Extension _ _) -> error "performCompletion: impossible"
-                    return $ Candidate c t (fromMaybe (error "performCompletion: ghci failed") i)
-            return $ Just (candidates', more)
+                    return $ Match c t (fromMaybe (error "performCompletion: ghci failed") i)
+            return $ Just (matches', more)
         Nothing -> return Nothing
 
 evalExpr :: Ghci -> String -> IO (Maybe [Text])

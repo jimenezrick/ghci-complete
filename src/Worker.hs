@@ -30,8 +30,8 @@ startWorker cmd reqChan = do
 workerLoop :: MonadIO m => Ghci -> MVar Request -> m ()
 workerLoop ghci reqChan = do
     req <- takeMVar reqChan
-    candidates <- performCompletion ghci (req ^. range) (req ^. completion)
-    case candidates of
+    matches <- performCompletion ghci (req ^. range) (req ^. completion)
+    case matches of
         Nothing -> putMVar (req ^. respChan) Nothing
         Just (matches, more) ->
             putMVar (req ^. respChan) $ Just Response {_matches = matches, _more = more}
@@ -39,7 +39,7 @@ workerLoop ghci reqChan = do
 
 -- TODO: return list with all the completion
 performAsyncCompletion ::
-       MonadIO m => MVar Request -> Maybe Range -> Completion -> m (Maybe ([Candidate], Bool))
+       MonadIO m => MVar Request -> Maybe Range -> Completion -> m (Maybe ([Match], Bool))
 performAsyncCompletion reqChan range compl = do
     respChan <- newEmptyMVar
     putMVar reqChan Request {_range = range, _completion = compl, _respChan = respChan}

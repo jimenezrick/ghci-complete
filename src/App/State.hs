@@ -15,7 +15,7 @@ data AppState = AppState
 makeLenses ''AppState
 
 data Response = Response
-    { _matches :: [Candidate]
+    { _matches :: [Match]
     , _more :: Bool
     }
 

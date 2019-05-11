@@ -16,8 +16,8 @@ data Completion
                 Loc
     deriving (Eq, Show)
 
-data Candidate = Candidate
-    { candidate :: Text
+data Match = Match
+    { match :: Text
     , type_ :: Text
     , info :: Text
     } deriving (Show)
