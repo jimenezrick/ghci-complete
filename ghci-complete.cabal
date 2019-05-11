@@ -47,6 +47,7 @@ library
     , Complete
     , Parse
     , Server
+    , Worker
 
 executable ghci-complete
   default-language: Haskell2010
