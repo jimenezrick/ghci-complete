@@ -4,19 +4,17 @@ import RIO
 import RIO.Process
 import System.Environment (lookupEnv)
 
+import App.Class
+import App.State
 import Cache
 
 data App = App
     { appLogOpts :: !LogOptions
     , appLogFunc :: !LogFunc
     , appProcessContext :: !ProcessContext
-    , appInfoCache :: !(SomeRef InfoCache)
+    , appReqChan :: !(MVar Request)
+    , appState :: !(SomeRef AppState)
     }
-
-class HasLogFunc env =>
-      HasLogOpts env
-    where
-    logOptsL :: Lens' env LogOptions
 
 instance HasLogOpts App where
     logOptsL = lens appLogOpts (\x y -> x {appLogOpts = y})
@@ -27,8 +25,8 @@ instance HasLogFunc App where
 instance HasProcessContext App where
     processContextL = lens appProcessContext (\x y -> x {appProcessContext = y})
 
-instance HasStateRef InfoCache App where
-    stateRefL = lens appInfoCache (\x y -> x {appInfoCache = y})
+instance HasStateRef AppState App where
+    stateRefL = lens appState (\x y -> x {appState = y})
 
 runApp :: MonadIO m => RIO App a -> m a
 runApp m =
@@ -36,13 +34,15 @@ runApp m =
         verbose <- isJust <$> lookupEnv "GHCI_COMPLETE_VERBOSE"
         lo <- logOptionsHandle stderr verbose
         pc <- mkDefaultProcessContext
-        ic <- newSomeRef emptyCache
+        rc <- newEmptyMVar
+        st <- newSomeRef AppState {_appInfoCache = emptyCache}
         withLogFunc lo $ \lf ->
             let app =
                     App
                         { appLogOpts = lo
                         , appLogFunc = lf
                         , appProcessContext = pc
-                        , appInfoCache = ic
+                        , appReqChan = rc
+                        , appState = st
                         }
              in runRIO app m

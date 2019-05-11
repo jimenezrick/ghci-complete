@@ -24,6 +24,7 @@ import qualified Network.Socket as N (getPeerName)
 import App
 import Complete
 import Parse
+import Worker
 
 data ServerException =
     AbortServer
@@ -37,7 +38,7 @@ instance Exception ServerException
 runServer :: RIO App ()
 runServer = do
     args <- liftIO getArgs
-    let opts =
+    let ghciCmd =
             case args of
                 [] -> "cabal new-repl"
                 files -> printf "ghci %s" $ unwords files
@@ -45,6 +46,9 @@ runServer = do
     let srvAddr = printf "localhost:%d" port
     writeAddressFile ".ghci_complete" srvAddr
     logInfo . fromString $ printf "Starting ghci-complete listening on %s" srvAddr
+    -- TODO: Use the worker
+    asks appReqChan >>= startWorker ghciCmd
+    --
     withRunInIO
         (\runInIO ->
              N.serve
@@ -53,9 +57,7 @@ runServer = do
                  (\(sock, _addr) -> do
                       cliAddr <- liftIO $ N.getPeerName sock
                       runInIO . logDebug . fromString . printf "Client connected %s" $ show cliAddr
-                      (ghci, _load) <-
-                          startGhci opts Nothing $ \_stream msg ->
-                              runInIO . logDebug $ fromString ("GHCi: " ++ msg)
+                      (ghci, _load) <- startGhci ghciCmd Nothing $ \_stream msg -> return ()
                       runInIO $ serve sock ghci `catch` \(_ :: ServerException) -> return ())) `onException`
         removeFile ".ghci_complete"
   where

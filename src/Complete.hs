@@ -20,6 +20,8 @@ import Language.Haskell.Ghcid
 
 import Parse
 
+type Range = (Int, Int)
+
 ghciLoad :: Ghci -> Maybe Text -> IO ()
 ghciLoad ghci (Just path) = void $ evalExpr ghci $ printf ":load! %s" path
 ghciLoad ghci Nothing = void $ evalExpr ghci ":reload!"
@@ -52,7 +54,7 @@ ghciInfo ghci expr
 ghciBrowse :: Ghci -> Text -> IO (Maybe [Text])
 ghciBrowse ghci mod = evalExpr ghci $ printf ":browse! %s" mod
 
-ghciComplete :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Text], Bool))
+ghciComplete :: Ghci -> Maybe Range -> Completion -> IO (Maybe ([Text], Bool))
 ghciComplete ghci range compl = do
     candidates <- evalExpr ghci $ cmd range
     return $ do
@@ -70,7 +72,7 @@ ghciComplete ghci range compl = do
     more total (Just (first, last)) = last < total
     more _ Nothing = False
 
-performCompletion :: Ghci -> Maybe (Int, Int) -> Completion -> IO (Maybe ([Candidate], Bool))
+performCompletion :: Ghci -> Maybe Range -> Completion -> IO (Maybe ([Candidate], Bool))
 performCompletion _ _ (Extension ext _) =
     let extensions = filter (T.isPrefixOf ext) ghcExtensions
      in return $ Just (map (\e -> Candidate e "" "") extensions, False)

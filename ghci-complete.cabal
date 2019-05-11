@@ -24,6 +24,7 @@ library
     , MultiParamTypeClasses
     , ScopedTypeVariables
     , FlexibleContexts
+    , TemplateHaskell
   build-depends:
       base >=4.7 && <5
     , containers
@@ -41,8 +42,11 @@ library
     , ghcid
     , unliftio
     , rio
+    , microlens-th
   exposed-modules:
       App
+    , App.Class
+    , App.State
     , Cache
     , Complete
     , Parse
