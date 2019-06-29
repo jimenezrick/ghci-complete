@@ -10,7 +10,10 @@ import Complete
 import Parse
 
 startWorker ::
-       (MonadUnliftIO m, MonadReader env m, HasLogOpts env) => String -> MVar Request -> m ()
+       (MonadUnliftIO m, MonadReader env m, HasStateRef AppState env, HasLogOpts env)
+    => String
+    -> MVar Request
+    -> m ()
 startWorker cmd reqChan = do
     logDebug "Starting worker process"
     logOpts <- setLogUseLoc False <$> view logOptsL
@@ -27,7 +30,8 @@ startWorker cmd reqChan = do
 -- TODO: Need to send multiple responses sometimes
 --       Also do the cachign
 --
-workerLoop :: MonadIO m => Ghci -> MVar Request -> m ()
+workerLoop ::
+       (MonadIO m, MonadReader env m, HasStateRef AppState env) => Ghci -> MVar Request -> m ()
 workerLoop ghci reqChan = do
     req <- takeMVar reqChan
     matches <- performCompletion ghci (req ^. range) (req ^. completion)

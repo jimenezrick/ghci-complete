@@ -9,7 +9,7 @@ import Parse
 
 data AppState = AppState
     { _appInfoCache :: InfoCache
-    , _none :: ()
+    , _none :: () -- XXX
     }
 
 makeLenses ''AppState

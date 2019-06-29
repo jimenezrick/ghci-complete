@@ -27,14 +27,12 @@ ghciLoadTest =
                        ghci <- getGhci
                        compl1 <- performCompletion ghci Nothing (Variable "foo" undefined)
                        (case compl1 of
-                            Just ([Candidate {candidate = "foo", type_ = ":: String"}], False) ->
-                                True
+                            Just ([Match {match = "foo", type_ = ":: String"}], False) -> True
                             _ -> False) @?
                            ("Unexpected: " ++ show compl1)
                        compl2 <- performCompletion ghci Nothing (Variable "ModA.ba" undefined)
                        (case compl2 of
-                            Just ([Candidate {candidate = "ModA.bar", type_ = ":: Int"}], False) ->
-                                True
+                            Just ([Match {match = "ModA.bar", type_ = ":: Int"}], False) -> True
                             _ -> False) @?
                            ("Unexpected: " ++ show compl2)
                  ])
@@ -49,7 +47,7 @@ completionTests =
                  ghci <- getGhci
                  compl <- performCompletion ghci Nothing (Module "Data.Bool" undefined)
                  (case compl of
-                      Just ([Candidate {candidate = "Data.Bool", type_ = ""}], False) -> True
+                      Just ([Match {match = "Data.Bool", type_ = ""}], False) -> True
                       _ -> False) @?
                      "Unexpected result")
 
